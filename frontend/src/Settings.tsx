@@ -1,10 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
+
+import {FetchDirectory} from '../wailsjs/go/main/App'
 
 interface SettingsProps {
   setCurrentPage: (page: string) => void;
 }
 
 const Settings: React.FC<SettingsProps> = ({ setCurrentPage }) => {
+  const [currentDir, setCurrentDir] = useState("C:")
+
+  const handleOpen =  async () => {
+    const dir = await FetchDirectory()
+    setCurrentDir(dir)
+  }
+
   return (
     <div className="min-h-screen bg-black text-zinc-100 flex flex-col">
       <header className="border-b border-zinc-900 bg-black py-4 px-6 shadow-md">
@@ -53,6 +62,22 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage }) => {
                       <span className="text-zinc-300">Maintain original resolution</span>
                     </label>
                   </div>
+                </div>
+              </div>
+
+              {/* Default Watch Location */}
+              <div className="p-4 border border-zinc-800 rounded-md bg-black">
+                <h2 className="text-lg font-medium mb-4 text-emerald-500">Watch Location</h2>
+                
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="text" 
+                    className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-100 py-2 px-3 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500" 
+                    placeholder={currentDir}
+                  />
+                  <button className="bg-zinc-800 hover:bg-zinc-700 text-zinc-100 py-2 px-4 rounded-md transition-colors" onClick={() => handleOpen()}>
+                    Browse
+                  </button>
                 </div>
               </div>
               

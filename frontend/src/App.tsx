@@ -3,16 +3,31 @@ import { useState, useEffect } from 'react'
 import VideoEditor from './VideoEditor'
 import Settings from './Settings'
 import VoidNotesLogo from './assets/VoidNotes_LOGO.png'
+import { GetLatestVideos } from '../wailsjs/go/main/App'
+
+interface Video {
+    Name: string;
+    Thumbnail: string;
+}
 
 function App() {
-    const [recentVideos] = useState([
-        { name: "Replay 2025-03-21 16-21.mp4", date: "Mar 21, 2025" },
-        { name: "Replay 2025-03-21 16-20.mp4", date: "Mar 21, 2025" },
-        { name: "Replay 2025-03-18 16-08.mp4", date: "Mar 18, 2025" }
-    ]);
+    const dir = "/Users/benfoster/Documents/SkibidiSlices"
+    const [recentVideos, setRecentVideos] = useState<Video[]>([]);
+    
     const [currentPage, setCurrentPage] = useState('home');
+    
+    const getRecentVideos = async() => {
+        const latest = await GetLatestVideos(dir);
+        console.log(latest)
+        const mappedVideos = latest.map(video => ({
+            Name: video.name,
+            Thumbnail: video.thumbnail,
+        }));
+        setRecentVideos(mappedVideos);
+    }
 
     useEffect(() => {
+        getRecentVideos()
         document.body.classList.add('bg-black', 'text-zinc-100');
         
         const metaTheme = document.createElement('meta');
@@ -65,7 +80,7 @@ function App() {
                             </svg>
                             Recent Files
                         </h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                             {recentVideos.map((video, index) => (
                                 <div 
                                     key={index} 
@@ -73,11 +88,10 @@ function App() {
                                     onClick={() => setCurrentPage('videoEditor')}
                                 >
                                     <div className="w-full h-32 bg-black mb-3 rounded-md flex items-center justify-center overflow-hidden">
-                                        <img src={VoidNotesLogo} alt="VoidNotes Logo" className="h-full object-contain" />
+                                        <img src={video.Thumbnail} alt={video.Thumbnail} className="h-full object-contain" />
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-sm font-medium text-zinc-300">{video.name}</span>
-                                        <span className="text-xs text-zinc-500">{video.date}</span>
+                                        <span className="text-sm font-medium text-zinc-300">{video.Name}</span>
                                     </div>
                                 </div>
                             ))}
