@@ -10,6 +10,14 @@ type App struct {
 	ctx context.Context
 }
 
+func requestFile() {
+
+}
+
+func saveFile() {
+	
+}
+
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{}

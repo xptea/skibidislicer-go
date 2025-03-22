@@ -1,1 +1,24 @@
+/* Essential WaveSurfer styles */
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent drag selection on trim handles and waveform */
+.wavesurfer-region {
+  z-index: 5 !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Set video rendering performance */
+video {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000;
+  -webkit-transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  -webkit-perspective: 1000;
+}
 
