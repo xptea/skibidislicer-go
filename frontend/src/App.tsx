@@ -1,47 +1,119 @@
 import './App.css'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, DragEvent } from 'react'
 import VideoEditor from './VideoEditor'
 import Settings from './Settings'
-import VoidNotesLogo from './assets/VoidNotes_LOGO.png'
-import { GetLatestVideos } from '../wailsjs/go/main/App'
+import { GetLatestVideos, GetWatchLocation, SelectVideo } from '../wailsjs/go/main/App'
+import { EventsOn } from '../wailsjs/wailsjs/runtime'
+import { main } from '../wailsjs/go/models'
 
-interface Video {
-    Name: string;
-    Thumbnail: string;
+interface VideoWithThumbnail extends main.VideoFile {
+    thumbnailData?: string;
+}
+
+declare global {
+    interface File {
+        path: string;
+    }
 }
 
 function App() {
-    const dir = "/Users/benfoster/Documents/SkibidiSlices"
-    const [recentVideos, setRecentVideos] = useState<Video[]>([]);
+    const [dir, setDir] = useState("")
+    const [recentVideos, setRecentVideos] = useState<VideoWithThumbnail[]>([])
+    const [currentPage, setCurrentPage] = useState('home')
+    const [selectedVideo, setSelectedVideo] = useState<string>("")
+    const [dragOver, setDragOver] = useState(false)
     
-    const [currentPage, setCurrentPage] = useState('home');
-    
+    const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+        e.preventDefault()
+        setDragOver(false)
+        
+        const files = e.dataTransfer.files
+        if (files.length > 0) {
+            const file = files[0]
+            if (file.type.startsWith('video/')) {
+                setSelectedVideo(file.path)
+                setCurrentPage('videoEditor')
+            }
+        }
+    }
+
+    const handleDragOver = (e: DragEvent) => {
+        e.preventDefault()
+        setDragOver(true)
+    }
+
+    const handleDragLeave = () => {
+        setDragOver(false)
+    }
+
+    const handleSelectVideo = async () => {
+        try {
+            const videoPath = await SelectVideo()
+            if (videoPath) {
+                setSelectedVideo(videoPath)
+                setCurrentPage('videoEditor')
+            }
+        } catch (error) {
+            console.error('Error selecting video:', error)
+        }
+    }
+
     const getRecentVideos = async() => {
-        const latest = await GetLatestVideos(dir);
-        console.log(latest)
-        const mappedVideos = latest.map(video => ({
-            Name: video.name,
-            Thumbnail: video.thumbnail,
-        }));
-        setRecentVideos(mappedVideos);
+        const latest = await GetLatestVideos(dir)
+        setRecentVideos(latest)
     }
 
     useEffect(() => {
-        getRecentVideos()
-        document.body.classList.add('bg-black', 'text-zinc-100');
+        EventsOn("thumbnail-ready", async (id: string) => {
+            try {
+                const response = await fetch(`/thumbnails/${id}`)
+                if (!response.ok) throw new Error('Failed to fetch thumbnail')
+                const blob = await response.blob()
+                const reader = new FileReader()
+                reader.onloadend = () => {
+                    setRecentVideos(prev => prev.map(video => {
+                        if (video.id === id) {
+                            return {
+                                ...video,
+                                thumbnailData: reader.result as string
+                            }
+                        }
+                        return video
+                    }))
+                }
+                reader.readAsDataURL(blob)
+            } catch (err) {
+                console.error('Error loading thumbnail:', err)
+            }
+        })
+
+        const loadWatchLocation = async () => {
+            const location = await GetWatchLocation()
+            if (location) {
+                setDir(location)
+            }
+        }
+        loadWatchLocation()
+        document.body.classList.add('bg-black', 'text-zinc-100')
         
-        const metaTheme = document.createElement('meta');
-        metaTheme.name = 'theme-color';
-        metaTheme.content = '#000000';
-        document.head.appendChild(metaTheme);
+        const metaTheme = document.createElement('meta')
+        metaTheme.name = 'theme-color'
+        metaTheme.content = '#000000'
+        document.head.appendChild(metaTheme)
         
         return () => {
-          document.head.removeChild(metaTheme);
-        };
-    }, []);
+            document.head.removeChild(metaTheme)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (dir) {
+            getRecentVideos()
+        }
+    }, [dir])
 
     if (currentPage === 'videoEditor') {
-        return <VideoEditor setCurrentPage={setCurrentPage} />;
+        return <VideoEditor setCurrentPage={setCurrentPage} videoPath={selectedVideo} />;
     }
 
     if (currentPage === 'settings') {
@@ -62,12 +134,17 @@ function App() {
                     </div>
                 </header>
                 <main className="flex-1 p-8 flex flex-col items-center bg-gradient-to-b from-black to-zinc-900">
-                    <div className="max-w-4xl w-full text-center border-dashed border-2 border-zinc-800 rounded-lg py-20 hover:border-zinc-700 transition-colors">
+                    <div 
+                        className={`max-w-4xl w-full text-center border-dashed border-2 ${dragOver ? 'border-emerald-500' : 'border-zinc-800'} rounded-lg py-20 hover:border-zinc-700 transition-colors`}
+                        onDrop={handleDrop}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                    >
                         <h2 className="text-xl font-semibold mb-4">Drop your video file here</h2>
                         <p className="text-zinc-500 mb-4">or</p>
                         <button 
                             className="bg-emerald-700 hover:bg-emerald-600 text-white py-3 px-6 rounded-md transition-colors shadow-md"
-                            onClick={() => setCurrentPage('videoEditor')}
+                            onClick={handleSelectVideo}
                         >
                             Open Video File
                         </button>
@@ -80,18 +157,29 @@ function App() {
                             </svg>
                             Recent Files
                         </h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-2">
                             {recentVideos.map((video, index) => (
                                 <div 
                                     key={index} 
                                     className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col hover:border-zinc-700 transition-all cursor-pointer"
-                                    onClick={() => setCurrentPage('videoEditor')}
+                                    onClick={() => {
+                                        setSelectedVideo(video.path)
+                                        setCurrentPage('videoEditor')
+                                    }}
                                 >
                                     <div className="w-full h-32 bg-black mb-3 rounded-md flex items-center justify-center overflow-hidden">
-                                        <img src={video.Thumbnail} alt={video.Thumbnail} className="h-full object-contain" />
+                                        {video.id ? (
+                                            <img 
+                                                src={`http://localhost:34115/thumbnails/${video.id}`}
+                                                alt={video.name} 
+                                                className="h-full object-contain" 
+                                            />
+                                        ) : (
+                                            <div className="text-zinc-600">Loading...</div>
+                                        )}
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-sm font-medium text-zinc-300">{video.Name}</span>
+                                        <span className="text-sm font-medium text-zinc-300">{video.name}</span>
                                     </div>
                                 </div>
                             ))}
@@ -104,7 +192,7 @@ function App() {
                             SkibidiSlicer © {new Date().getFullYear()}
                         </div>
                         <div className="text-zinc-500">
-                            VoidWorks company
+                            A VoidWorks Company
                         </div>
                     </div>
                 </footer>

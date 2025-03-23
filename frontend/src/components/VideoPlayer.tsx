@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 
 interface VideoPlayerProps {
   videoSrc: string;
@@ -16,58 +16,56 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   currentTime,
   onTimeUpdate,
   onError,
+  trimStart,
+  trimEnd
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const servedVideoUrl = useMemo(() => {
+    const encodedPath = encodeURIComponent(videoSrc);
+    return `http://localhost:34115/video/${encodedPath}`;
+  }, [videoSrc]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
-
-    const handlePlay = async () => {
-      try {
-        if (isPlaying) {
-          await video.play();
-        } else {
-          video.pause();
-        }
-      } catch (err) {
-        onError('Error playing video');
+    if (video) {
+      if (isPlaying) {
+        video.play().catch(err => {
+          onError(err.message);
+        });
+      } else {
+        video.pause();
       }
-    };
-
-    handlePlay();
+    }
   }, [isPlaying, onError]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
-
-    video.playsInline = true;
-    video.preload = "auto";
-    
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl2', { powerPreference: 'high-performance' });
-    if (gl) {
-      video.style.transform = 'translateZ(0)';
-    }
-  }, []);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video && Math.abs(video.currentTime - currentTime) > 0.1) {
+    if (video && Math.abs(video.currentTime - currentTime) > 0.5) {
       video.currentTime = currentTime;
     }
   }, [currentTime]);
 
+  const handleLoadedMetadata = () => {
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = trimStart;
+    }
+  };
+
   return (
-    <div className="relative w-full bg-black rounded-lg overflow-hidden shadow-xl mb-4" 
-         style={{ aspectRatio: '16/9', maxHeight: '70vh' }}>
+    <div className="w-full aspect-video bg-zinc-900 rounded-lg overflow-hidden mb-4">
       <video
         ref={videoRef}
-        className="w-full h-full object-contain bg-black"
-        src={videoSrc}
+        className="w-full h-full object-contain"
         onTimeUpdate={onTimeUpdate}
-        onError={() => onError('Error loading video')}
+        onEnded={() => {
+          if (videoRef.current) {
+            videoRef.current.currentTime = trimStart;
+          }
+        }}
+        onError={() => onError("Failed to load video")}
+        onLoadedMetadata={handleLoadedMetadata}
+        src={servedVideoUrl}
       />
     </div>
   );

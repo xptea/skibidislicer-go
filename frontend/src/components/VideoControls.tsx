@@ -14,7 +14,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   jumpToEnd
 }) => {
   return (
-    <div className="flex justify-center items-center gap-4 mb-4">
+    <div className="flex justify-center items-center gap-4 mb-1">
       <button 
         onClick={jumpToStart}
         className="p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition-colors"

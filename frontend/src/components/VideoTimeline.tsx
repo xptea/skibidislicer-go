@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 
 interface VideoTimelineProps {
@@ -29,39 +29,61 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const [isWaveformReady, setIsWaveformReady] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const servedVideoUrl = useMemo(() => {
+    const encodedPath = encodeURIComponent(videoSrc);
+    return `http://localhost:34115/video/${encodedPath}`;
+  }, [videoSrc]);
 
   useEffect(() => {
     if (waveformRef.current && !wavesurferRef.current) {
-      const wavesurfer = WaveSurfer.create({
-        backend: 'WebAudio',
-        container: waveformRef.current,
-        waveColor: '#888888',
-        progressColor: '#ffffff',
-        cursorColor: 'transparent',
-        barWidth: 3,
-        barGap: 2,
-        barRadius: 2,
-        height: 60,
-        normalize: true,
-        fillParent: true,
-        minPxPerSec: 1,
-        interact: false,
-        barHeight: 3
+      const video = document.createElement('video');
+      video.src = servedVideoUrl;
+      videoRef.current = video;
+
+      video.addEventListener('loadeddata', () => {
+        if (waveformRef.current) {
+          const wavesurfer = WaveSurfer.create({
+            backend: 'MediaElement',
+            container: waveformRef.current,
+            waveColor: '#888888',
+            progressColor: '#ffffff',
+            cursorColor: 'transparent',
+            barWidth: 3,
+            barGap: 2,
+            barRadius: 2,
+            height: 60,
+            normalize: true,
+            fillParent: true,
+            minPxPerSec: 1,
+            interact: false,
+            barHeight: 3,
+            media: video
+          });
+
+          wavesurfer.on('ready', () => {
+            setIsWaveformReady(true);
+          });
+
+          wavesurfer.on('error', (err) => {
+            console.error('Waveform error:', err);
+          });
+
+          wavesurferRef.current = wavesurfer;
+        }
       });
-      wavesurfer.load(videoSrc);
-      wavesurfer.on('ready', () => {
-        setIsWaveformReady(true);
-        console.log("Waveform ready!");
-      });
-      wavesurfer.on('error', (err) => {
-        console.error("Waveform error:", err);
-      });
-      wavesurferRef.current = wavesurfer;
+
       return () => {
-        wavesurfer.destroy();
+        if (wavesurferRef.current) {
+          wavesurferRef.current.destroy();
+        }
+        if (videoRef.current) {
+          videoRef.current.src = '';
+        }
       };
     }
-  }, [videoSrc]);
+  }, [servedVideoUrl]);
 
   useEffect(() => {
     if (wavesurferRef.current && isWaveformReady) {
@@ -103,10 +125,7 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
               top: '-40%'
             }}
           />
-          <div className="absolute inset-x-0 bottom-0 flex justify-between px-2 text-[10px] text-zinc-500">
-            <span>{formatTime(trimStart)}</span>
-            <span>{formatTime(trimEnd)}</span>
-          </div>
+
         </div>
         <div
           className="absolute top-0 bottom-0 z-30 cursor-ew-resize flex items-center"

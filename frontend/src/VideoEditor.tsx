@@ -3,9 +3,10 @@ import VideoEditorContainer from './components/VideoEditorContainer';
 
 interface VideoEditorProps {
     setCurrentPage: (page: string) => void;
+    videoPath: string;
 }
 
-const VideoEditor: React.FC<VideoEditorProps> = ({ setCurrentPage }) => {
+const VideoEditor: React.FC<VideoEditorProps> = ({ setCurrentPage, videoPath }) => {
     return (
         <div className="min-h-screen bg-black text-zinc-100 flex flex-col">
             <header className="border-b border-zinc-900 bg-black py-4 px-6 shadow-md">
@@ -22,7 +23,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ setCurrentPage }) => {
 
             <main className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-8 bg-black">
                 <div className="w-full max-w-4xl lg:max-w-6xl mx-auto">
-                    <VideoEditorContainer />
+                    <VideoEditorContainer videoPath={videoPath} />
                 </div>
             </main>
         </div>
