@@ -5,7 +5,7 @@ interface SettingsProps {
   setCurrentPage: (page: string) => void
 }
 
-const CURRENT_VERSION = "v1.0.0"
+const CURRENT_VERSION = "v1.0.1"
 const VERSION_CHECK_URL = "https://raw.githubusercontent.com/xptea/skibidislicer-go/refs/heads/main/frontend/src/version.txt"
 
 const Settings: React.FC<SettingsProps> = ({ setCurrentPage }) => {
