@@ -8,6 +8,7 @@ interface VideoPlayerProps {
   onError: (message: string) => void;
   trimStart: number;
   trimEnd: number;
+  isMuted: boolean;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -17,9 +18,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onTimeUpdate,
   onError,
   trimStart,
-  trimEnd
+  isMuted,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const servedVideoUrl = useMemo(() => {
     const encodedPath = encodeURIComponent(videoSrc);
     return `http://localhost:34115/video/${encodedPath}`;
@@ -29,14 +31,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (video) {
       if (isPlaying) {
-        video.play().catch(err => {
-          onError(err.message);
-        });
+        video.play().catch(err => onError(err.message));
       } else {
         video.pause();
       }
+      video.muted = isMuted;
     }
-  }, [isPlaying, onError]);
+  }, [isPlaying, isMuted, onError]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -53,7 +54,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   return (
-    <div className="w-full aspect-video bg-zinc-900 rounded-lg overflow-hidden mb-4">
+    <div ref={containerRef} className="relative w-full aspect-video bg-zinc-900 rounded-lg overflow-hidden mb-4">
       <video
         ref={videoRef}
         className="w-full h-full object-contain"
@@ -66,6 +67,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onError={() => onError("Failed to load video")}
         onLoadedMetadata={handleLoadedMetadata}
         src={servedVideoUrl}
+        muted={isMuted}
       />
     </div>
   );

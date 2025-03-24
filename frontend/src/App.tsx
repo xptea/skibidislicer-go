@@ -1,14 +1,11 @@
-import './App.css'
 import { useState, useEffect, DragEvent } from 'react'
 import VideoEditor from './VideoEditor'
 import Settings from './Settings'
-import { GetLatestVideos, GetWatchLocation, SelectVideo } from '../wailsjs/go/main/App'
+import { GetLatestVideos, GetWatchLocation, SelectVideo, HandleFileUpload } from '../wailsjs/wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/wailsjs/runtime'
-import { main } from '../wailsjs/go/models'
+import { main } from '../wailsjs/wailsjs/go/models'
 
-interface VideoWithThumbnail extends main.VideoFile {
-    thumbnailData?: string;
-}
+interface VideoWithThumbnail extends main.VideoFile {thumbnailData?: string;}
 
 declare global {
     interface File {
@@ -16,33 +13,49 @@ declare global {
     }
 }
 
+const CURRENT_VERSION = "v1.0.1"
+const VERSION_CHECK_URL = "https://raw.githubusercontent.com/xptea/skibidislicer-go/refs/heads/main/frontend/src/version.txt"
+
 function App() {
     const [dir, setDir] = useState("")
     const [recentVideos, setRecentVideos] = useState<VideoWithThumbnail[]>([])
     const [currentPage, setCurrentPage] = useState('home')
     const [selectedVideo, setSelectedVideo] = useState<string>("")
     const [dragOver, setDragOver] = useState(false)
+    const [updateAvailable, setUpdateAvailable] = useState(false)
+    const [latestVersion, setLatestVersion] = useState("")
     
-    const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
         e.preventDefault()
+        e.stopPropagation()
         setDragOver(false)
+
+        const files = Array.from(e.dataTransfer.files)
+        const videoFile = files.find(file => 
+            file.type.startsWith('video/') || 
+            file.name.match(/\.(mp4|mov|avi|mkv|webm)$/i)
+        )
         
-        const files = e.dataTransfer.files
-        if (files.length > 0) {
-            const file = files[0]
-            if (file.type.startsWith('video/')) {
-                setSelectedVideo(file.path)
+        if (videoFile) {
+            try {
+                const buffer = await videoFile.arrayBuffer()
+                const path = await HandleFileUpload(Array.from(new Uint8Array(buffer)), videoFile.name)
+                setSelectedVideo(path)
                 setCurrentPage('videoEditor')
+            } catch (error) {
+                console.error('Upload failed:', error)
             }
         }
     }
 
     const handleDragOver = (e: DragEvent) => {
         e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
         setDragOver(true)
     }
 
-    const handleDragLeave = () => {
+    const handleDragLeave = (e: DragEvent) => {
+        e.preventDefault()
         setDragOver(false)
     }
 
@@ -61,6 +74,29 @@ function App() {
     const getRecentVideos = async() => {
         const latest = await GetLatestVideos(dir)
         setRecentVideos(latest)
+    }
+    
+    const checkForUpdates = async () => {
+        try {
+            const response = await fetch(VERSION_CHECK_URL)
+            if (!response.ok) return
+            
+            const versionText = await response.text()
+            const cleanVersion = versionText.trim()
+            
+            if (cleanVersion !== CURRENT_VERSION && cleanVersion !== "") {
+                setLatestVersion(cleanVersion)
+                setUpdateAvailable(true)
+                localStorage.setItem('updateAvailable', 'true')
+                localStorage.setItem('latestVersion', cleanVersion)
+            }
+        } catch (error) {
+            console.error("Failed to check for updates:", error)
+        }
+    }
+    
+    const handleUpdate = () => {
+        window.open('https://github.com/xptea/skibidislicer-go/releases', '_blank')
     }
 
     useEffect(() => {
@@ -93,7 +129,18 @@ function App() {
                 setDir(location)
             }
         }
+        
+        const checkLocalStorageForUpdates = () => {
+            const hasUpdate = localStorage.getItem('updateAvailable') === 'true'
+            if (hasUpdate) {
+                setUpdateAvailable(true)
+                setLatestVersion(localStorage.getItem('latestVersion') || "")
+            }
+        }
+        
         loadWatchLocation()
+        checkLocalStorageForUpdates()
+        checkForUpdates()
         document.body.classList.add('bg-black', 'text-zinc-100')
         
         const metaTheme = document.createElement('meta')
@@ -113,11 +160,11 @@ function App() {
     }, [dir])
 
     if (currentPage === 'videoEditor') {
-        return <VideoEditor setCurrentPage={setCurrentPage} videoPath={selectedVideo} />;
+        return <VideoEditor setCurrentPage={setCurrentPage} videoPath={selectedVideo} />
     }
 
     if (currentPage === 'settings') {
-        return <Settings setCurrentPage={setCurrentPage} />;
+        return <Settings setCurrentPage={setCurrentPage} />
     }
 
     if (currentPage === 'home') {
@@ -126,9 +173,20 @@ function App() {
                 <header className="border-b border-zinc-900 bg-black py-4 px-6 shadow-md">
                     <div className="flex items-center justify-between max-w-6xl mx-auto w-full">
                         <div className="text-3xl font-bold">
-                            <span className="text-zinc-100">Skibidi<span className="text-emerald-500">Slicer</span></span>
+                            <span className="text-zinc-100">SkibidiSlicer</span>
                         </div>
-                        <nav className="flex gap-6">
+                        <nav className="flex gap-6 items-center">
+                            {updateAvailable && (
+                                <button
+                                    className="bg-amber-600 text-white text-xs py-1 px-2 rounded-md flex items-center"
+                                    onClick={handleUpdate}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                    Update v{latestVersion.replace('v', '')}
+                                </button>
+                            )}
                             <button className="hover:text-emerald-400 transition-colors" onClick={() => setCurrentPage('settings')}>Settings</button>
                         </nav>
                     </div>
@@ -149,7 +207,6 @@ function App() {
                             Open Video File
                         </button>
                     </div>
-
                     <section className="mt-12 w-full max-w-4xl">
                         <h2 className="text-2xl font-semibold mb-6 text-zinc-100 flex items-center">
                             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -197,10 +254,10 @@ function App() {
                     </div>
                 </footer>
             </div>
-        );
+        )
     }
 
-    return null;
+    return null
 }
 
 export default App

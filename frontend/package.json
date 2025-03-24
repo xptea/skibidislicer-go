@@ -10,9 +10,8 @@
   },
   "dependencies": {
     "react": "^18.2.0",
-    "react-audio-visualize": "^1.2.0",
     "react-dom": "^18.2.0",
-    "wavesurfer.js": "^7.9.3"
+    "react-rnd": "^10.5.2"
   },
   "devDependencies": {
     "@types/react": "^18.0.17",

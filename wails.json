@@ -7,8 +7,8 @@
   "frontend:dev:serverUrl": "auto",
   "wailsjsdir": "./frontend/wailsjs",
   "author": {
-    "name": "buddy",
-    "email": ""
+    "name": "VoidWorks",
+    "email": "void@terradream.games"
   },
   "static_assets": {
     "thumbnails": "./thumbnails"

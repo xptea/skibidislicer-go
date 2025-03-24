@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
-import WaveSurfer from 'wavesurfer.js';
+import React, { useEffect, useRef, useState } from 'react';
+import AudioVisualizer from './AudioVisualizer';
 
 interface VideoTimelineProps {
   progress: number;
@@ -24,80 +24,80 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
   handleTrimHandleMouseDown,
   handleTrimHandleMouseUp,
   handleTrimHandleMouseMove,
-  formatTime
 }) => {
-  const waveformRef = useRef<HTMLDivElement>(null);
-  const wavesurferRef = useRef<WaveSurfer | null>(null);
-  const [isWaveformReady, setIsWaveformReady] = useState(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  const servedVideoUrl = useMemo(() => {
-    const encodedPath = encodeURIComponent(videoSrc);
-    return `http://localhost:34115/video/${encodedPath}`;
-  }, [videoSrc]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const progressIndicatorRef = useRef<HTMLDivElement>(null);
+  const isVisibleRef = useRef(true);
+  const [canvasWidth, setCanvasWidth] = useState(600);
+  const [canvasHeight, setCanvasHeight] = useState(64);
 
   useEffect(() => {
-    if (waveformRef.current && !wavesurferRef.current) {
-      const video = document.createElement('video');
-      video.src = servedVideoUrl;
-      videoRef.current = video;
+    const video = document.querySelector('video');
+    if (!video) return;
 
-      video.addEventListener('loadeddata', () => {
-        if (waveformRef.current) {
-          const wavesurfer = WaveSurfer.create({
-            backend: 'MediaElement',
-            container: waveformRef.current,
-            waveColor: '#888888',
-            progressColor: '#ffffff',
-            cursorColor: 'transparent',
-            barWidth: 3,
-            barGap: 2,
-            barRadius: 2,
-            height: 60,
-            normalize: true,
-            fillParent: true,
-            minPxPerSec: 1,
-            interact: false,
-            barHeight: 3,
-            media: video
-          });
+    let animationFrameId: number;
 
-          wavesurfer.on('ready', () => {
-            setIsWaveformReady(true);
-          });
+    const updateProgress = () => {
+      if (progressIndicatorRef.current && video.duration) {
+        const progressPercent = (video.currentTime / video.duration) * 100;
+        progressIndicatorRef.current.style.left = `${progressPercent}%`;
+      }
+      animationFrameId = requestAnimationFrame(updateProgress);
+    };
 
-          wavesurfer.on('error', (err) => {
-            console.error('Waveform error:', err);
-          });
+    updateProgress();
 
-          wavesurferRef.current = wavesurfer;
-        }
-      });
-
-      return () => {
-        if (wavesurferRef.current) {
-          wavesurferRef.current.destroy();
-        }
-        if (videoRef.current) {
-          videoRef.current.src = '';
-        }
-      };
-    }
-  }, [servedVideoUrl]);
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, []);
 
   useEffect(() => {
-    if (wavesurferRef.current && isWaveformReady) {
-      wavesurferRef.current.seekTo(progress / 100);
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        isVisibleRef.current = entry.isIntersecting;
+      },
+      { threshold: 0.1 }
+    );
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
     }
-  }, [progress, isWaveformReady]);
+    return () => {
+      if (containerRef.current) {
+        observer.unobserve(containerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const updateCanvasSize = () => {
+      if (containerRef.current) {
+        const { width, height } = containerRef.current.getBoundingClientRect();
+        const newWidth = Math.floor(width);
+        const newHeight = Math.floor(height);
+        if (newWidth !== canvasWidth || newHeight !== canvasHeight) {
+          setCanvasWidth(newWidth);
+          setCanvasHeight(newHeight);
+        }
+      }
+    };
+    updateCanvasSize();
+    const resizeObserver = new ResizeObserver(updateCanvasSize);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+    return () => resizeObserver.disconnect();
+  }, [canvasWidth, canvasHeight]);
 
   const trimStartPercent = (trimStart / duration) * 100;
   const trimEndPercent = (trimEnd / duration) * 100;
+  const bracketWidthAdjustment = canvasWidth > 0 ? (6 / canvasWidth) * 100 : 1;
 
   return (
     <div className="relative">
       <div
         className="relative h-16 cursor-pointer select-none"
+        ref={containerRef}
         onMouseDown={handleScrub}
         onMouseMove={(e) => {
           if (e.buttons === 1) handleScrub(e);
@@ -107,25 +107,33 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
         onMouseLeave={handleTrimHandleMouseUp}
       >
         <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden">
-          <div ref={waveformRef} className="absolute inset-0 opacity-90" />
+          <AudioVisualizer videoSrc={videoSrc} progress={progress} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
           <div
-            className="absolute top-0 bottom-0 left-0 bg-black/70 pointer-events-none z-10 transition-all duration-75"
+            className="absolute top-0 bottom-0 left-0 bg-black/70 pointer-events-none z-10"
             style={{ width: `${trimStartPercent}%` }}
           />
           <div
-            className="absolute top-0 bottom-0 right-0 bg-black/70 pointer-events-none z-10 transition-all duration-75"
-            style={{ width: `${100 - trimEndPercent}%` }}
-          />
-          <div
-            className="absolute bg-white pointer-events-none z-20 shadow-[0_0_8px_rgba(255,255,255,0.7)]"
-            style={{ 
-              left: `${progress}%`, 
-              width: '2px',
-              height: '180%',
-              top: '-40%'
+            className="absolute top-0 bottom-0 z-10 bg-black/70 pointer-events-none"
+            style={{
+              left: `${trimEndPercent + bracketWidthAdjustment}%`,
+              width: `${100 - (trimEndPercent + bracketWidthAdjustment)}%`,
             }}
           />
-
+        </div>
+        <div
+          ref={progressIndicatorRef}
+          className="absolute z-20 pointer-events-none"
+          style={{
+            left: '0%',
+            top: '-20%',
+            width: '2px',
+            height: '120%',
+            backgroundColor: 'white',
+            boxShadow: '0 0 8px rgba(255,255,255,0.7)',
+            transition: 'none',
+          }}
+        >
+          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-2 h-2 rounded-full bg-white" />
         </div>
         <div
           className="absolute top-0 bottom-0 z-30 cursor-ew-resize flex items-center"
@@ -145,7 +153,7 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
         </div>
         <div
           className="absolute top-0 bottom-0 z-30 cursor-ew-resize flex items-center"
-          style={{ left: `${trimEndPercent}%` }}
+          style={{ left: `${trimEndPercent}%`, transform: 'translateX(-100%)' }}
           onMouseDown={() => handleTrimHandleMouseDown('end')}
         >
           <div className="h-full flex flex-col items-center justify-center">

@@ -11,7 +11,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   isPlaying,
   togglePlay,
   jumpToStart,
-  jumpToEnd
+  jumpToEnd,
 }) => {
   return (
     <div className="flex justify-center items-center gap-4 mb-1">

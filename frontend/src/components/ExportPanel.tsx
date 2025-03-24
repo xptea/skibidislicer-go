@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ExportClip } from '../../wailsjs/go/main/App';
+import { ExportClip, GetExportSettings } from '../../wailsjs/wailsjs/go/main/App';
 
 interface ExportPanelProps {
   currentTime: number;
@@ -9,27 +9,58 @@ interface ExportPanelProps {
   formatTime: (time: number) => string;
   defaultTitle: string;
   videoPath: string;
+  isMuted: boolean;
 }
 
 const ExportPanel: React.FC<ExportPanelProps> = ({
-  currentTime,
   duration,
   trimStart,
   trimEnd,
   formatTime,
   defaultTitle,
-  videoPath
+  videoPath,
+  isMuted
 }) => {
   const [clipTitle, setClipTitle] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const estimatedFileSize = ((trimEnd - trimStart) / duration * 1.5).toFixed(2);
+  const [exportSettings, setExportSettings] = useState({
+    fileExtension: "mp4",
+    resolution: "source",
+    codec: "default",
+    bitrate: "",
+    copyToClipboard: false
+  });
 
   useEffect(() => {
+    const loadExportSettings = async () => {
+      const settings = await GetExportSettings()
+      if (settings) {
+        setExportSettings({
+          fileExtension: settings.file_extension || "mp4",
+          resolution: settings.resolution || "source",
+          codec: settings.codec || "default",
+          bitrate: settings.bitrate || "",
+          copyToClipboard: settings.copy_to_clipboard || false
+        });
+      }
+    };
+    loadExportSettings();
     setClipTitle(defaultTitle);
   }, [defaultTitle]);
-  
+
+  const calculateEstimatedSize = () => {
+    const clipDuration = trimEnd - trimStart;
+    let baseMultiplier = exportSettings.fileExtension === "mp4" ? 1.5 : exportSettings.fileExtension === "mov" ? 1.8 : 3.0;
+    if (exportSettings.resolution === "1080p") baseMultiplier *= 1.0;
+    else if (exportSettings.resolution === "720p") baseMultiplier *= 0.6;
+    else if (exportSettings.resolution === "480p") baseMultiplier *= 0.3;
+    const bitrateFactor = exportSettings.bitrate ? parseInt(exportSettings.bitrate) / 8000 : 1;
+    const estimatedSize = clipDuration * baseMultiplier * (bitrateFactor || 1);
+    return estimatedSize.toFixed(2);
+  };
+
   const handleExport = async () => {
     if (isExporting) return;
     
@@ -38,8 +69,22 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
     setExportError(null);
     
     try {
-      const outputPath = await ExportClip(videoPath, clipTitle, trimStart, trimEnd);
+      const codec = isMuted ? `${exportSettings.codec}:muted` : exportSettings.codec;
+      
+      const outputPath = await ExportClip(
+        videoPath,
+        clipTitle,
+        trimStart,
+        trimEnd,
+        exportSettings.fileExtension,
+        exportSettings.resolution,
+        codec,
+        exportSettings.bitrate
+      );
       setExportSuccess(true);
+      if (exportSettings.copyToClipboard) {
+        console.log(`Copying to clipboard: ${outputPath}`);
+      }
       setTimeout(() => setExportSuccess(false), 5000);
     } catch (error) {
       setExportError(error as string);
@@ -80,7 +125,7 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
       )}
 
       <div className="flex justify-between items-center text-xs text-zinc-500">
-        <span>Estimated Clip Size: {estimatedFileSize} MB</span>
+        <span>Estimated Clip Size: {calculateEstimatedSize()} MB</span>
         <span>Clip duration: {formatTime(trimEnd - trimStart)}</span>
       </div>
     </div>
