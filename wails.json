@@ -1,6 +1,6 @@
 {
-  "name": "skibidislicer-go",
-  "outputfilename": "skibidislicer-go",
+  "name": "Skibidi Slicer",
+  "outputfilename": "Skibidi Slicer",
   "frontend:install": "bun install",
   "frontend:build": "bun run build",
   "frontend:dev:watcher": "bun run dev",

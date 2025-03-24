@@ -198,17 +198,6 @@ func (a *App) GetLatestVideos(directory string) ([]VideoFile, error) {
 	return latestVideos, nil
 }
 
-func (a *App) generateAndCacheThumbnail(videoPath, id string) {
-	thumbnailData, err := a.generateThumbnail(videoPath)
-	if err != nil {
-		return
-	}
-	a.mutex.Lock()
-	a.thumbnailCache[id] = thumbnailData
-	a.mutex.Unlock()
-	runtime.EventsEmit(a.ctx, "thumbnail-ready", id)
-}
-
 func (a *App) GetThumbnail(id string) []byte {
 	a.mutex.RLock()
 	defer a.mutex.RUnlock()
@@ -222,12 +211,21 @@ func (a *App) generateThumbnail(videoPath string) ([]byte, error) {
 	}
 	defer os.RemoveAll(tempDir)
 	thumbnailPath := filepath.Join(tempDir, "thumbnail.jpg")
+
 	cmd := exec.Command("ffmpeg", "-i", videoPath,
 		"-ss", "00:00:01",
 		"-vframes", "1",
 		"-vf", "scale=320:-1",
 		"-q:v", "2",
 		thumbnailPath)
+
+	if stdruntime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow:    true,
+			CreationFlags: 0x08000000,
+		}
+	}
+
 	if err := cmd.Run(); err != nil {
 		return nil, err
 	}
@@ -465,6 +463,13 @@ func (a *App) ExportClip(videoPath, title string, startTime, endTime float64, fi
 	}
 	args = append(args, "-y", outputPath)
 	cmd := exec.Command("ffmpeg", args...)
+	if stdruntime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow:    true,
+			CreationFlags: 0x08000000,
+		}
+	}
+
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("error running ffmpeg: %w", err)
 	}
@@ -554,6 +559,13 @@ func (a *App) CropVideo(videoPath string, x, y, width, height int) (string, erro
 		"-y", outputPath,
 	}
 	cmd := exec.Command("ffmpeg", args...)
+	if stdruntime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow:    true,
+			CreationFlags: 0x08000000,
+		}
+	}
+
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("error running ffmpeg crop: %w", err)
 	}

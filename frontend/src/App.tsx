@@ -79,7 +79,9 @@ function App() {
     const checkForUpdates = async () => {
         try {
             const response = await fetch(VERSION_CHECK_URL)
-            if (!response.ok) return
+            if (!response.ok) {
+                throw new Error(`Failed to fetch version: ${response.status}`)
+            }
             
             const versionText = await response.text()
             const cleanVersion = versionText.trim()
@@ -89,6 +91,10 @@ function App() {
                 setUpdateAvailable(true)
                 localStorage.setItem('updateAvailable', 'true')
                 localStorage.setItem('latestVersion', cleanVersion)
+            } else {
+                setUpdateAvailable(false)
+                localStorage.removeItem('updateAvailable')
+                localStorage.removeItem('latestVersion')
             }
         } catch (error) {
             console.error("Failed to check for updates:", error)
@@ -131,10 +137,15 @@ function App() {
         }
         
         const checkLocalStorageForUpdates = () => {
-            const hasUpdate = localStorage.getItem('updateAvailable') === 'true'
-            if (hasUpdate) {
+            const storedUpdateAvailable = localStorage.getItem('updateAvailable') === 'true'
+            const storedVersion = localStorage.getItem('latestVersion') || ""
+            
+            if (storedUpdateAvailable && storedVersion && storedVersion !== CURRENT_VERSION) {
                 setUpdateAvailable(true)
-                setLatestVersion(localStorage.getItem('latestVersion') || "")
+                setLatestVersion(storedVersion)
+            } else {
+                localStorage.removeItem('updateAvailable')
+                localStorage.removeItem('latestVersion')
             }
         }
         

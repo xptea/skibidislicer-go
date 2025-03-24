@@ -86,8 +86,15 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
     }
   }, []);
 
-  const handleTrimHandleMouseDown = () => setIsDragging(true);
-  const handleTrimHandleMouseUp = () => setIsDragging(false);
+  const handleTrimHandleMouseDown = (handle: 'start' | 'end') => {
+    setIsDragging(true);
+    setActiveTrimHandle(handle);
+  };
+  
+  const handleTrimHandleMouseUp = () => {
+    setIsDragging(false);
+    setActiveTrimHandle(null);
+  };
 
   return (
     <div className="flex flex-col w-full">
@@ -203,6 +210,7 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
             const seconds = Math.floor(time % 60);
             return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
           }}
+          activeTrimHandle={activeTrimHandle}
         />
 
         <ExportPanel

@@ -60,6 +60,8 @@ ManifestDPIAware true
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}"
+!define MUI_FINISHPAGE_RUN_TEXT "Launch ${INFO_PRODUCTNAME} now"
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
 
 !insertmacro MUI_UNPAGE_INSTFILES # Uinstalling page

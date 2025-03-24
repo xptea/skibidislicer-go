@@ -13,6 +13,8 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ videoSrc, progress, c
   const [isLoading, setIsLoading] = useState(false);
   const frameRequestRef = useRef(0);
   const lastDrawnProgressRef = useRef(0);
+  const lastWidthRef = useRef(0);
+  const lastHeightRef = useRef(0);
 
   const servedVideoUrl = useMemo(() => {
     const encodedPath = encodeURIComponent(videoSrc);
@@ -31,7 +33,7 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ videoSrc, progress, c
         const audioContext = new AudioContext();
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
         
-        const numberOfSamples = 100;
+        const numberOfSamples = 200;
         const channelData = audioBuffer.getChannelData(0);
         const blockSize = Math.floor(channelData.length / numberOfSamples);
         
@@ -50,6 +52,9 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ videoSrc, progress, c
         
         setAudioData(normalizedData);
         drawWaveform(normalizedData, progress);
+        
+        lastWidthRef.current = canvasWidth;
+        lastHeightRef.current = canvasHeight;
       } catch (error) {
         console.error('Error processing audio:', error);
       } finally {
@@ -68,7 +73,19 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ videoSrc, progress, c
   }, [servedVideoUrl]);
 
   useEffect(() => {
-    if (Math.abs(lastDrawnProgressRef.current - progress) > 0.5 || progress === 0) {
+    if (audioData.length > 0) {
+      drawWaveform(audioData, progress);
+    }
+  }, [canvasWidth, canvasHeight]);
+
+  useEffect(() => {
+    const shouldRedraw = 
+      Math.abs(lastDrawnProgressRef.current - progress) > 0.5 || 
+      progress === 0 ||
+      lastWidthRef.current !== canvasWidth ||
+      lastHeightRef.current !== canvasHeight;
+      
+    if (shouldRedraw) {
       if (frameRequestRef.current) {
         cancelAnimationFrame(frameRequestRef.current);
       }
@@ -77,10 +94,12 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ videoSrc, progress, c
         frameRequestRef.current = requestAnimationFrame(() => {
           drawWaveform(audioData, progress);
           lastDrawnProgressRef.current = progress;
+          lastWidthRef.current = canvasWidth;
+          lastHeightRef.current = canvasHeight;
         });
       }
     }
-  }, [progress, audioData]);
+  }, [progress, audioData, canvasWidth, canvasHeight]);
 
   const drawWaveform = (data: number[], currentProgress: number) => {
     const canvas = canvasRef.current;
@@ -88,6 +107,9 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ videoSrc, progress, c
     
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
+    
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
     
     const width = canvas.width;
     const height = canvas.height;
@@ -118,8 +140,7 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ videoSrc, progress, c
         <canvas 
           ref={canvasRef} 
           className="absolute inset-0"
-          width={canvasWidth}
-          height={canvasHeight}
+          style={{ width: '100%', height: '100%' }}
         />
       )}
     </div>
