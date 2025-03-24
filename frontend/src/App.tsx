@@ -96,7 +96,7 @@ function App() {
     }
     
     const handleUpdate = () => {
-        window.open('https://github.com/xptea/skibidislicer-go/releases', '_blank')
+        window.open('https://github.com/xptea/skibidislicer-go/releases/latest/download/skibidislicer-go-amd64-installer.exe', '_blank')
     }
 
     useEffect(() => {
