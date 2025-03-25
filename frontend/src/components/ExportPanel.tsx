@@ -25,6 +25,7 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [sourceFileSize, setSourceFileSize] = useState<number>(0);
   const [exportSettings, setExportSettings] = useState({
     fileExtension: "mp4",
     resolution: "source",
@@ -48,17 +49,60 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
     };
     loadExportSettings();
     setClipTitle(defaultTitle);
-  }, [defaultTitle]);
+
+    fetch(`http://localhost:34115/video/${encodeURIComponent(videoPath)}`, { method: 'HEAD' })
+      .then(response => {
+        const size = parseInt(response.headers.get('content-length') || '0');
+        setSourceFileSize(size);
+      })
+      .catch(error => console.error('Error getting file size:', error));
+  }, [defaultTitle, videoPath]);
 
   const calculateEstimatedSize = () => {
     const clipDuration = trimEnd - trimStart;
-    let baseMultiplier = exportSettings.fileExtension === "mp4" ? 1.5 : exportSettings.fileExtension === "mov" ? 1.8 : 3.0;
-    if (exportSettings.resolution === "1080p") baseMultiplier *= 1.0;
-    else if (exportSettings.resolution === "720p") baseMultiplier *= 0.6;
-    else if (exportSettings.resolution === "480p") baseMultiplier *= 0.3;
-    const bitrateFactor = exportSettings.bitrate ? parseInt(exportSettings.bitrate) / 8000 : 1;
-    const estimatedSize = clipDuration * baseMultiplier * (bitrateFactor || 1);
-    return estimatedSize.toFixed(2);
+    const sourceDuration = duration;
+    
+    if (sourceFileSize === 0 || sourceDuration === 0) return '0.00';
+    
+    let estimatedSize = (sourceFileSize / sourceDuration) * clipDuration;
+    
+    const codecMultipliers: { [key: string]: number } = {
+      'h264_nvenc': 1.1,
+      'hevc_nvenc': 0.85,
+      'libx264': 1.0,
+      'libx265': 0.8,
+      'default': 1.0
+    };
+    
+    const resolutionMultipliers: { [key: string]: number } = {
+      'source': 1.0,
+      '1080p': 0.95,
+      '720p': 0.5,
+      '480p': 0.25
+    };
+    
+    const formatMultipliers: { [key: string]: number } = {
+      'mp4': 1.0,
+      'mov': 1.1,
+      'gif': 1.2
+    };
+    
+    estimatedSize *= codecMultipliers[exportSettings.codec] || 1.0;
+    
+    estimatedSize *= resolutionMultipliers[exportSettings.resolution] || 1.0;
+    
+    estimatedSize *= formatMultipliers[exportSettings.fileExtension] || 1.0;
+    
+    if (exportSettings.bitrate) {
+      const bitrateInBytes = parseInt(exportSettings.bitrate) * 125;
+      estimatedSize = (bitrateInBytes * clipDuration);
+    }
+    
+    if (isMuted) {
+      estimatedSize *= 0.85;
+    }
+    
+    return (estimatedSize / (1024 * 1024)).toFixed(2);
   };
 
   const handleExport = async () => {
