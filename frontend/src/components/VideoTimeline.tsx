@@ -98,7 +98,7 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
   }, [canvasWidth, canvasHeight]);
 
   const trimStartPercent = (trimStart / duration) * 100;
-  const trimEndPercent = (trimEnd / duration) * 100;
+  const trimEndPercent = (trimEnd / duration) * 99;
   const rightTrimPosition = trimEndPercent + 0.7;
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement, MouseEvent>, handle: 'start' | 'end') => {

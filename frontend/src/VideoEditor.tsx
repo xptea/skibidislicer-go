@@ -12,8 +12,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ setCurrentPage, videoPath }) 
             <header className="border-b border-zinc-800 bg-black/95 backdrop-blur-sm py-4 px-6 sticky top-0 z-50">
                 <div className="flex items-center justify-between max-w-7xl mx-auto w-full">
                     <h1 className="text-xl font-semibold tracking-tight">
-                        <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
-                            SkibidiSlicer
+                        <span className="bg-white to-cyan-400 bg-clip-text text-transparent">
+                            Skibidi Slicer
                         </span>
                     </h1>
                     <nav className="flex gap-4">

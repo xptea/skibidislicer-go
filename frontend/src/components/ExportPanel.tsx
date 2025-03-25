@@ -93,7 +93,7 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
         value={clipTitle}
         onChange={(e) => setClipTitle(e.target.value)}
         placeholder="Clip title"
-        className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+        className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-4 py-2.5 text-center text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
       />
 
       <button 

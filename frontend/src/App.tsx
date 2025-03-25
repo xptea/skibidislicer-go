@@ -195,7 +195,7 @@ function App() {
                 </div>
             </header>
 
-            <main className="flex-1 p-8 flex flex-col items-center bg-gradient-to-b from-black to-zinc-900/50">
+            <main className="flex-1 p-8 flex flex-col items-center ">
                 <div className={`max-w-4xl w-full text-center border-2 ${dragOver ? 'border-emerald-400/50' : 'border-zinc-800'} rounded-2xl p-16 transition-colors backdrop-blur-sm bg-zinc-900/30`}
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
