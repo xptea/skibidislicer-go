@@ -3,12 +3,13 @@ import {FetchDirectory, SaveWatchLocation, GetWatchLocation, SaveSaveLocation, G
 
 interface SettingsProps {
   setCurrentPage: (page: string) => void
+  onSettingsSaved?: () => void
 }
 
 const CURRENT_VERSION = "v1.0.1"
 const VERSION_CHECK_URL = "https://raw.githubusercontent.com/xptea/skibidislicer-go/refs/heads/main/frontend/src/version.txt"
 
-const Settings: React.FC<SettingsProps> = ({ setCurrentPage }) => {
+const Settings: React.FC<SettingsProps> = ({ setCurrentPage, onSettingsSaved }) => {
   const [currentDir, setCurrentDir] = useState("")
   const [saveDir, setSaveDir] = useState("")
   const [fileExtension, setFileExtension] = useState("mp4")
@@ -111,6 +112,7 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage }) => {
         save_location: saveDir
       })
       
+      if (onSettingsSaved) await onSettingsSaved()
       setCurrentPage('home')
     } catch (error) {
       console.error("Failed to save settings:", error)

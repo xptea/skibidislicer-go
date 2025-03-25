@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -23,6 +24,8 @@ type App struct {
 	ctx            context.Context
 	thumbnailCache map[string][]byte
 	mutex          sync.RWMutex
+	watcher        *fsnotify.Watcher
+	watchMutex     sync.Mutex
 }
 
 type VideoFile struct {
@@ -112,14 +115,18 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-func (a *App) domReady(ctx context.Context) {
-}
+func (a *App) domReady(ctx context.Context) {}
 
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	return false
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	a.watchMutex.Lock()
+	defer a.watchMutex.Unlock()
+	if a.watcher != nil {
+		a.watcher.Close()
+	}
 }
 
 func (a *App) FetchDirectory() (string, error) {
@@ -176,11 +183,11 @@ func (a *App) GetLatestVideos(directory string) ([]VideoFile, error) {
 	sort.Slice(videoFiles, func(i, j int) bool {
 		return videoFiles[i].ModTime().After(videoFiles[j].ModTime())
 	})
+	if len(videoFiles) > 3 {
+		videoFiles = videoFiles[:3]
+	}
 	var latestVideos []VideoFile
-	for i, file := range videoFiles {
-		if i >= 3 {
-			break
-		}
+	for _, file := range videoFiles {
 		videoPath := filepath.Join(directory, file.Name())
 		id := fmt.Sprintf("%s_%d", file.Name(), file.ModTime().UnixNano())
 		thumbnailData, err := a.generateThumbnail(videoPath)
@@ -196,6 +203,64 @@ func (a *App) GetLatestVideos(directory string) ([]VideoFile, error) {
 		})
 	}
 	return latestVideos, nil
+}
+
+func (a *App) watchDirectory(path string) {
+	a.watcher.Add(path)
+	for {
+		select {
+		case event, ok := <-a.watcher.Events:
+			if !ok {
+				return
+			}
+			switch {
+			case event.Op&fsnotify.Create == fsnotify.Create:
+				runtime.EventsEmit(a.ctx, "file-created")
+			case event.Op&fsnotify.Remove == fsnotify.Remove:
+				runtime.EventsEmit(a.ctx, "file-removed")
+			case event.Op&fsnotify.Rename == fsnotify.Rename:
+				runtime.EventsEmit(a.ctx, "file-renamed")
+			case event.Op&fsnotify.Write == fsnotify.Write:
+				runtime.EventsEmit(a.ctx, "file-changed")
+			}
+		case err, ok := <-a.watcher.Errors:
+			if !ok {
+				return
+			}
+			fmt.Println("Watcher error:", err)
+		}
+	}
+}
+
+func (a *App) SaveWatchLocation(location string) error {
+	settingsFilePath, err := getSettingsFilePath()
+	if err != nil {
+		return err
+	}
+	var settings Settings
+	data, err := os.ReadFile(settingsFilePath)
+	if err == nil {
+		json.Unmarshal(data, &settings)
+	}
+	settings.WatchLocation = location
+	data, err = json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+
+	a.watchMutex.Lock()
+	defer a.watchMutex.Unlock()
+	if a.watcher != nil {
+		a.watcher.Close()
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err == nil {
+		a.watcher = watcher
+		go a.watchDirectory(location)
+	}
+
+	return os.WriteFile(settingsFilePath, data, 0644)
 }
 
 func (a *App) GetThumbnail(id string) []byte {
@@ -242,24 +307,6 @@ func getSettingsFilePath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(settingsDir, "settings.json"), nil
-}
-
-func (a *App) SaveWatchLocation(location string) error {
-	settingsFilePath, err := getSettingsFilePath()
-	if err != nil {
-		return err
-	}
-	var settings Settings
-	data, err := os.ReadFile(settingsFilePath)
-	if err == nil {
-		json.Unmarshal(data, &settings)
-	}
-	settings.WatchLocation = location
-	data, err = json.Marshal(settings)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(settingsFilePath, data, 0644)
 }
 
 func (a *App) GetWatchLocation() (string, error) {
@@ -482,6 +529,7 @@ func (a *App) ExportClip(videoPath, title string, startTime, endTime float64, fi
 	}
 	return outputPath, nil
 }
+
 func (a *App) CopyToClipboard(filePath string) error {
 	if stdruntime.GOOS != "windows" {
 		return runtime.ClipboardSetText(a.ctx, filePath)

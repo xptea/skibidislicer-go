@@ -43,3 +43,4 @@ Thumbs.db
 # Wails build artifacts
 wails_build/
 frontend/dist/
+frontend/dist/index.html

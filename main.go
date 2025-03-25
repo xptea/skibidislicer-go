@@ -18,9 +18,10 @@ func main() {
 
 	err := wails.Run(&options.App{
 		Title:            "SkibidiSlicer",
-		Width:            820,
-		Height:           910,
+		Width:            800,
+		Height:           920,
 		Assets:           assets,
+		DisableResize: true,
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
 		Bind: []interface{}{

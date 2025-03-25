@@ -2,7 +2,7 @@ import { useState, useEffect, DragEvent } from 'react'
 import VideoEditor from './VideoEditor'
 import Settings from './Settings'
 import { GetLatestVideos, GetWatchLocation, SelectVideo, HandleFileUpload } from '../wailsjs/wailsjs/go/main/App'
-import { EventsOn } from '../wailsjs/wailsjs/runtime'
+import { EventsOn, EventsOff } from '../wailsjs/wailsjs/runtime/runtime'
 import { main } from '../wailsjs/wailsjs/go/models'
 
 interface VideoWithThumbnail extends main.VideoFile {thumbnailData?: string;}
@@ -75,6 +75,12 @@ function App() {
         const latest = await GetLatestVideos(dir)
         setRecentVideos(latest)
     }
+
+    const reloadWatchLocation = async () => {
+        const location = await GetWatchLocation()
+        setDir(location)
+        await getRecentVideos()
+    }
     
     const checkForUpdates = async () => {
         try {
@@ -105,68 +111,80 @@ function App() {
         window.open('https://github.com/xptea/skibidislicer-go/releases/latest/download/skibidislicer-go-amd64-installer.exe', '_blank')
     }
 
+    const checkLocalStorageForUpdates = () => {
+        const storedUpdateAvailable = localStorage.getItem('updateAvailable') === 'true'
+        const storedVersion = localStorage.getItem('latestVersion') || ""
+        
+        if (storedUpdateAvailable && storedVersion && storedVersion !== CURRENT_VERSION) {
+            setUpdateAvailable(true)
+            setLatestVersion(storedVersion)
+        } else {
+            localStorage.removeItem('updateAvailable')
+            localStorage.removeItem('latestVersion')
+        }
+    }
+
     useEffect(() => {
-        EventsOn("thumbnail-ready", async (id: string) => {
+        const handleFileChange = async () => {
+            if (dir) {
+                await getRecentVideos();
+            }
+        };
+
+        const handleThumbnail = async (id: string) => {
             try {
                 const response = await fetch(`/thumbnails/${id}`)
                 if (!response.ok) throw new Error('Failed to fetch thumbnail')
                 const blob = await response.blob()
                 const reader = new FileReader()
                 reader.onloadend = () => {
-                    setRecentVideos(prev => prev.map(video => {
-                        if (video.id === id) {
-                            return {
-                                ...video,
-                                thumbnailData: reader.result as string
-                            }
-                        }
-                        return video
-                    }))
+                    setRecentVideos(prev => prev.map(video => video.id === id ? { ...video, thumbnailData: reader.result as string } : video))
                 }
                 reader.readAsDataURL(blob)
             } catch (err) {
-                console.error('Error loading thumbnail:', err)
+                console.error(err)
             }
-        })
+        };
 
+        EventsOn("thumbnail-ready", handleThumbnail);
+        EventsOn("file-created", handleFileChange);
+        EventsOn("file-changed", handleFileChange);
+        EventsOn("file-removed", handleFileChange);
+        EventsOn("file-renamed", handleFileChange);
+        const offDirectoryChanged = EventsOn("directory-changed", reloadWatchLocation);
+        
         const loadWatchLocation = async () => {
-            const location = await GetWatchLocation()
+            const location = await GetWatchLocation();
             if (location) {
-                setDir(location)
+                setDir(location);
             }
-        }
+        };
         
-        const checkLocalStorageForUpdates = () => {
-            const storedUpdateAvailable = localStorage.getItem('updateAvailable') === 'true'
-            const storedVersion = localStorage.getItem('latestVersion') || ""
-            
-            if (storedUpdateAvailable && storedVersion && storedVersion !== CURRENT_VERSION) {
-                setUpdateAvailable(true)
-                setLatestVersion(storedVersion)
-            } else {
-                localStorage.removeItem('updateAvailable')
-                localStorage.removeItem('latestVersion')
-            }
-        }
+        loadWatchLocation();
+        checkLocalStorageForUpdates();
+        checkForUpdates();
+        document.body.classList.add('bg-black', 'text-zinc-100');
         
-        loadWatchLocation()
-        checkLocalStorageForUpdates()
-        checkForUpdates()
-        document.body.classList.add('bg-black', 'text-zinc-100')
-        
-        const metaTheme = document.createElement('meta')
-        metaTheme.name = 'theme-color'
-        metaTheme.content = '#000000'
-        document.head.appendChild(metaTheme)
+        const metaTheme = document.createElement('meta');
+        metaTheme.name = 'theme-color';
+        metaTheme.content = '#000000';
+        document.head.appendChild(metaTheme);
         
         return () => {
-            document.head.removeChild(metaTheme)
-        }
+            document.head.removeChild(metaTheme);
+            EventsOff("thumbnail-ready");
+            EventsOff("file-created");
+            EventsOff("file-changed");
+            EventsOff("file-removed");
+            EventsOff("file-renamed");
+            EventsOff("directory-changed");
+            offDirectoryChanged();
+        };
     }, [])
 
     useEffect(() => {
         if (dir) {
-            getRecentVideos()
+            getRecentVideos();
         }
     }, [dir])
 
@@ -175,7 +193,10 @@ function App() {
     }
 
     if (currentPage === 'settings') {
-        return <Settings setCurrentPage={setCurrentPage} />
+        return <Settings 
+            setCurrentPage={setCurrentPage} 
+            onSettingsSaved={reloadWatchLocation}
+        />
     }
 
     if (currentPage === 'home') {
