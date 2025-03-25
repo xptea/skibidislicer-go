@@ -21,8 +21,17 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
   const [activeTrimHandle, setActiveTrimHandle] = useState<'start' | 'end' | null>(null);
   const [defaultTitle, setDefaultTitle] = useState('');
   const [isMuted, setIsMuted] = useState(false);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [isLooping, setIsLooping] = useState(false);
+  const lastScrubTimeRef = useRef(0);
+  const scrubThrottleRef = useRef<number | null>(null);
+  const initialBoxSelectionRef = useRef({ startTrim: 0, endTrim: 0, mouseX: 0 });
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const isBoxSelectingRef = useRef(false);
+  const updatePosAnimFrameRef = useRef<number | null>(null);
+  const pendingTimeUpdateRef = useRef<{time: number, immediate: boolean} | null>(null);
+  const isProcessingUpdateRef = useRef(false);
 
-  // Initialize default title from video path
   useEffect(() => {
     const filename = videoPath.split(/[\\/]/).pop();
     if (filename) {
@@ -31,12 +40,33 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
     }
   }, [videoPath]);
 
-  // Video control functions
-  const togglePlay = () => setIsPlaying(!isPlaying);
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
+      setIsPlaying(prev => {
+        
+        if (prev && video.paused) return false; 
+        return !prev;
+      });
+    } else {
+      setIsPlaying(prev => !prev);
+    }
+  }, []);
+
   const toggleMute = () => setIsMuted(!isMuted);
+  const toggleLoop = useCallback(() => {
+    setIsLooping(prev => {
+      const newState = !prev;
+      const video = videoRef.current;
+      if (video) {
+        video.loop = newState; 
+      }
+      return newState;
+    });
+  }, []);
 
   const jumpToStart = useCallback(() => {
-    const video = document.querySelector('video');
+    const video = videoRef.current || document.querySelector('video');
     if (video) {
       video.currentTime = trimStart;
       setCurrentTime(trimStart);
@@ -45,7 +75,7 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
   }, [trimStart, duration]);
 
   const jumpToEnd = useCallback(() => {
-    const video = document.querySelector('video');
+    const video = videoRef.current || document.querySelector('video');
     if (video) {
       video.currentTime = trimEnd;
       setCurrentTime(trimEnd);
@@ -53,16 +83,75 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
     }
   }, [trimEnd, duration]);
 
+  const updateVideoPosition = useCallback((newTime: number, immediate = false) => {
+    if (updatePosAnimFrameRef.current) {
+      cancelAnimationFrame(updatePosAnimFrameRef.current);
+      updatePosAnimFrameRef.current = null;
+    }
+    
+    pendingTimeUpdateRef.current = { time: newTime, immediate };
+    
+    if (isProcessingUpdateRef.current) return;
+    
+    const processUpdate = () => {
+      isProcessingUpdateRef.current = true;
+      
+      if (pendingTimeUpdateRef.current) {
+        const { time, immediate } = pendingTimeUpdateRef.current;
+        pendingTimeUpdateRef.current = null;
+        
+        const video = videoRef.current || document.querySelector('video');
+        if (video && (Math.abs(video.currentTime - time) > 0.05 || immediate)) {
+          video.currentTime = time;
+          setCurrentTime(time);
+          setProgress((time / video.duration) * 100);
+        }
+      }
+      
+      if (pendingTimeUpdateRef.current) {
+        updatePosAnimFrameRef.current = requestAnimationFrame(processUpdate);
+      } else {
+        isProcessingUpdateRef.current = false;
+      }
+    };
+    
+    updatePosAnimFrameRef.current = requestAnimationFrame(processUpdate);
+  }, []);
+
+  const debounceTimer = useRef<number | null>(null);
+  
+  const debouncedScrub = useCallback((newTime: number, immediate = false) => {
+    if (debounceTimer.current !== null) {
+      window.clearTimeout(debounceTimer.current);
+    }
+    
+    if (immediate) {
+      updateVideoPosition(newTime, true);
+    } else {
+      const now = Date.now();
+      if (now - lastScrubTimeRef.current > 80) {
+        updateVideoPosition(newTime);
+        lastScrubTimeRef.current = now;
+      } else {
+        debounceTimer.current = window.setTimeout(() => {
+          updateVideoPosition(newTime);
+          lastScrubTimeRef.current = Date.now();
+          debounceTimer.current = null;
+        }, 50);
+      }
+    }
+  }, [updateVideoPosition]);
+
   const handleTimeUpdate = () => {
-    const video = document.querySelector('video');
+    const video = videoRef.current || document.querySelector('video');
     if (video) {
-      setProgress((video.currentTime / video.duration) * 100);
-      setCurrentTime(video.currentTime);
-      if (!isDragging) {
-        if (video.currentTime < trimStart) video.currentTime = trimStart;
-        if (video.currentTime > trimEnd) {
+      if (!isScrubbing && !isDragging && !isBoxSelectingRef.current) {
+        setProgress((video.currentTime / video.duration) * 100);
+        setCurrentTime(video.currentTime);
+        
+        if (video.currentTime >= trimEnd) {
           video.currentTime = trimStart;
-          if (isPlaying) video.play();
+          if (isPlaying && !video.paused) video.play();
         }
       }
     }
@@ -73,28 +162,121 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
     setIsPlaying(false);
   };
 
-  // Load video duration
   useEffect(() => {
     const video = document.querySelector('video');
+    videoRef.current = video;
     if (video) {
       const handleMetadataLoad = () => {
         setDuration(video.duration);
         setTrimEnd(video.duration);
+        video.loop = isLooping;
       };
       video.addEventListener('loadedmetadata', handleMetadataLoad);
       return () => video.removeEventListener('loadedmetadata', handleMetadataLoad);
     }
-  }, []);
+  }, [isLooping]);
 
   const handleTrimHandleMouseDown = (handle: 'start' | 'end') => {
     setIsDragging(true);
     setActiveTrimHandle(handle);
+    if (isPlaying) {
+      setIsPlaying(false);
+    }
   };
   
   const handleTrimHandleMouseUp = () => {
     setIsDragging(false);
     setActiveTrimHandle(null);
   };
+
+  const handleScrub = useCallback((e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+    setIsScrubbing(true);
+    const video = videoRef.current || document.querySelector('video');
+    if (!video || !video.duration) return;
+    const scrubBar = e.currentTarget;
+    const rect = scrubBar.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    let newTime = (offsetX / scrubBar.clientWidth) * video.duration;
+    newTime = Math.max(trimStart, Math.min(newTime, trimEnd));
+    if (isFinite(newTime) && newTime >= 0 && newTime <= video.duration) {
+      debouncedScrub(newTime, isMouseDown.current);
+    }
+    setTimeout(() => setIsScrubbing(false), 100);
+  }, [debouncedScrub, trimStart, trimEnd]);
+
+  const isMouseDown = useRef(false);
+  const handleMouseDown = useCallback(() => {
+    isMouseDown.current = true;
+  }, []);
+  
+  const handleMouseUp = useCallback(() => {
+    isMouseDown.current = false;
+  }, []);
+  
+  useEffect(() => {
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [handleMouseDown, handleMouseUp]);
+
+  const handleBoxSelection = useCallback((e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+    const video = videoRef.current || document.querySelector('video');
+    if (!video || !video.duration) return;
+    
+    const scrubBar = e.currentTarget;
+    const rect = scrubBar.getBoundingClientRect();
+    
+    if (e.buttons === 2) {
+      isBoxSelectingRef.current = true;
+      
+      if (!initialBoxSelectionRef.current.mouseX) {
+        initialBoxSelectionRef.current = {
+          startTrim: trimStart,
+          endTrim: trimEnd,
+          mouseX: e.clientX
+        };
+      }
+      
+      const deltaX = e.clientX - initialBoxSelectionRef.current.mouseX;
+      const deltaPct = deltaX / rect.width;
+      const deltaTime = deltaPct * video.duration;
+      
+      const trimLength = initialBoxSelectionRef.current.endTrim - initialBoxSelectionRef.current.startTrim;
+      let newStart = initialBoxSelectionRef.current.startTrim + deltaTime;
+      let newEnd = initialBoxSelectionRef.current.endTrim + deltaTime;
+      
+      if (newStart < 0) {
+        newStart = 0;
+        newEnd = newStart + trimLength;
+      }
+      
+      if (newEnd > video.duration) {
+        newEnd = video.duration;
+        newStart = newEnd - trimLength;
+      }
+      
+      if (newStart >= 0 && newEnd <= video.duration) {
+        setTrimStart(newStart);
+        setTrimEnd(newEnd);
+        
+        debouncedScrub(newStart, true);
+      }
+    }
+  }, [trimStart, trimEnd, debouncedScrub]);
+
+  useEffect(() => {
+    const handleMouseUp = () => {
+      isBoxSelectingRef.current = false;
+      initialBoxSelectionRef.current = { startTrim: 0, endTrim: 0, mouseX: 0 };
+    };
+    
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, []);
 
   return (
     <div className="flex flex-col w-full">
@@ -114,6 +296,8 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
           trimStart={trimStart}
           trimEnd={trimEnd}
           isMuted={isMuted}
+          isLooping={isLooping}
+          onPlaying={setIsPlaying}
         />
       </div>
 
@@ -133,16 +317,16 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
               title={isMuted ? 'Unmute' : 'Mute'}
             >
               {isMuted ? (
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M11 5L6 9H2V15H6L11 19V5Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M23 9L17 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M17 9L23 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 5L6 9H2V15H6L11 19V5Z" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M23 9L17 15" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M17 9L23 15" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M11 5L6 9H2V15H6L11 19V5Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M15.54 8.46C16.48 9.41 17 10.68 17 12C17 13.32 16.48 14.59 15.54 15.54" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M19.07 4.93C20.94 6.81 22 9.34 22 12C22 14.66 20.94 17.19 19.07 19.07" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 5L6 9H2V15H6L11 19V5Z" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M15.54 8.46C16.48 9.41 17 10.68 17 12C17 13.32 16.48 14.59 15.54 15.54" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M19.07 4.93C20.94 6.81 22 9.34 22 12C22 14.66 20.94 17.19 19.07 19.07" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               )}
             </button>
@@ -161,48 +345,26 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
           trimStart={trimStart}
           trimEnd={trimEnd}
           videoSrc={videoPath}
-          handleScrub={(e) => {
-            const video = document.querySelector('video');
-            if (!video || !video.duration) return;
-            const scrubBar = e.currentTarget;
-            const rect = scrubBar.getBoundingClientRect();
-            const offsetX = e.clientX - rect.left;
-            let newTime = (offsetX / scrubBar.clientWidth) * video.duration;
-            const bracketWidthTime = (6 / scrubBar.clientWidth) * video.duration;
-            const adjustedTrimEnd = Math.min(trimEnd + bracketWidthTime, video.duration);
-            newTime = Math.max(trimStart, Math.min(newTime, adjustedTrimEnd));
-            if (isFinite(newTime) && newTime >= 0 && newTime <= video.duration) {
-              video.currentTime = newTime;
-              setProgress((newTime / video.duration) * 100);
-              setCurrentTime(newTime);
-            }
-          }}
+          handleScrub={handleScrub}
           handleTrimHandleMouseDown={handleTrimHandleMouseDown}
           handleTrimHandleMouseUp={handleTrimHandleMouseUp}
           handleTrimHandleMouseMove={(e) => {
             if (!isDragging || !activeTrimHandle) return;
-            const video = document.querySelector('video');
+            const video = videoRef.current || document.querySelector('video');
             if (!video) return;
             const scrubBar = e.currentTarget;
             const rect = scrubBar.getBoundingClientRect();
             const offsetX = e.clientX - rect.left;
             const newTime = (offsetX / scrubBar.clientWidth) * duration;
+            
             if (activeTrimHandle === 'start') {
               const newStart = Math.min(Math.max(0, newTime), trimEnd - 0.5);
               setTrimStart(newStart);
-              if (currentTime < newStart) {
-                video.currentTime = newStart;
-                setCurrentTime(newStart);
-                setProgress((newStart / duration) * 100);
-              }
+              debouncedScrub(newStart, true);
             } else {
               const newEnd = Math.max(Math.min(duration, newTime), trimStart + 0.5);
               setTrimEnd(newEnd);
-              if (currentTime > newEnd) {
-                video.currentTime = newEnd;
-                setCurrentTime(newEnd);
-                setProgress((newEnd / duration) * 100);
-              }
+              debouncedScrub(newEnd, true);
             }
           }}
           formatTime={(time) => {
@@ -211,6 +373,7 @@ const VideoEditorContainer: React.FC<VideoEditorContainerProps> = ({ videoPath }
             return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
           }}
           activeTrimHandle={activeTrimHandle}
+          handleBoxSelection={handleBoxSelection}
         />
 
         <ExportPanel

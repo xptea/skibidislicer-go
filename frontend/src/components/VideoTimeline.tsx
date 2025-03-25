@@ -13,6 +13,7 @@ interface VideoTimelineProps {
   handleTrimHandleMouseMove: (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => void;
   formatTime: (time: number) => string;
   activeTrimHandle?: 'start' | 'end' | null;
+  handleBoxSelection?: (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => void;
 }
 
 const VideoTimeline: React.FC<VideoTimelineProps> = ({
@@ -26,6 +27,7 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
   handleTrimHandleMouseUp,
   handleTrimHandleMouseMove,
   activeTrimHandle,
+  handleBoxSelection,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const progressIndicatorRef = useRef<HTMLDivElement>(null);
@@ -33,6 +35,9 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
   const [canvasWidth, setCanvasWidth] = useState(600);
   const [canvasHeight, setCanvasHeight] = useState(64);
   const [isMouseDown, setIsMouseDown] = useState(false);
+  const [isRightMouseDown, setIsRightMouseDown] = useState(false);
+  const [selectionWidth, setSelectionWidth] = useState(0);
+  const [selectionStartPos, setSelectionStartPos] = useState(0);
 
   useEffect(() => {
     const video = document.querySelector('video');
@@ -94,32 +99,73 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
 
   const trimStartPercent = (trimStart / duration) * 100;
   const trimEndPercent = (trimEnd / duration) * 100;
-  const bracketWidthAdjustment = canvasWidth > 0 ? (6 / canvasWidth) * 100 : 1;
+  const rightTrimPosition = trimEndPercent + 0.7;
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement, MouseEvent>, handle: 'start' | 'end') => {
     e.stopPropagation();
     handleTrimHandleMouseDown(handle);
   };
-
+  
   const handleTimelineMouseDown = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+    if (e.button === 2) {
+      e.preventDefault();
+      setIsRightMouseDown(true);
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const offsetX = e.clientX - rect.left;
+        setSelectionStartPos(offsetX / rect.width);
+        setSelectionWidth(0);
+      }
+      return;
+    }
+    
     setIsMouseDown(true);
     handleScrub(e);
   };
 
   const handleTimelineMouseMove = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+    if (isRightMouseDown && containerRef.current) {
+      e.preventDefault();
+      const rect = containerRef.current.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const currentPos = offsetX / rect.width;
+      const width = currentPos - selectionStartPos;
+      setSelectionWidth(width);
+      
+      if (handleBoxSelection) {
+        handleBoxSelection(e);
+      }
+      return;
+    }
+    
     if (isMouseDown) {
       handleScrub(e);
     }
     handleTrimHandleMouseMove(e);
   };
 
-  const handleTimelineMouseUp = () => {
+  const handleTimelineMouseUp = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+    if (e.button === 2) {
+      setIsRightMouseDown(false);
+      return;
+    }
+    
     setIsMouseDown(false);
     handleTrimHandleMouseUp();
   };
 
+  const handleContextMenu = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+    e.preventDefault();
+    return false;
+  };
+
   useEffect(() => {
-    const handleWindowMouseUp = () => {
+    const handleWindowMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) {
+        setIsRightMouseDown(false);
+        return;
+      }
+      
       if (isMouseDown) {
         setIsMouseDown(false);
         handleTrimHandleMouseUp();
@@ -130,7 +176,7 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
     return () => {
       window.removeEventListener('mouseup', handleWindowMouseUp);
     };
-  }, [isMouseDown, handleTrimHandleMouseUp]);
+  }, [isMouseDown, isRightMouseDown, handleTrimHandleMouseUp]);
 
   return (
     <div className="relative">
@@ -141,6 +187,7 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
         onMouseMove={handleTimelineMouseMove}
         onMouseUp={handleTimelineMouseUp}
         onMouseLeave={handleTimelineMouseUp}
+        onContextMenu={handleContextMenu}
       >
         <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden">
           <AudioVisualizer videoSrc={videoSrc} progress={progress} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
@@ -151,8 +198,8 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
           <div
             className="absolute top-0 bottom-0 z-10 bg-black/70 pointer-events-none"
             style={{
-              left: `${trimEndPercent + bracketWidthAdjustment}%`,
-              width: `${100 - (trimEndPercent + bracketWidthAdjustment)}%`,
+              left: `${rightTrimPosition}%`,
+              right: 0
             }}
           />
         </div>
@@ -166,7 +213,7 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
             height: '120%',
             backgroundColor: 'white',
             boxShadow: '0 0 8px rgba(255,255,255,0.7)',
-            transition: 'none',
+            transition: isRightMouseDown ? 'none' : activeTrimHandle ? 'transform 0.05s linear' : 'none'
           }}
         >
           <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-2 h-2 rounded-full bg-white" />
@@ -189,7 +236,7 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
         </div>
         <div
           className="absolute top-0 bottom-0 z-30 cursor-ew-resize flex items-center"
-          style={{ left: `${trimEndPercent}%`, transform: 'translateX(-100%)' }}
+          style={{ left: `${trimEndPercent}%` }}
           onMouseDown={(e) => handleMouseDown(e, 'end')}
         >
           <div className="h-full flex flex-col items-center justify-center">
