@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { ExportClip, GetExportSettings } from '../../wailsjs/wailsjs/go/main/App';
+import React, { useState, useEffect } from 'react'
+import { ExportClip, GetExportSettings } from '../../wailsjs/wailsjs/go/main/App'
 
 interface ExportPanelProps {
-  currentTime: number;
-  duration: number;
-  trimStart: number;
-  trimEnd: number;
-  formatTime: (time: number) => string;
-  defaultTitle: string;
-  videoPath: string;
-  isMuted: boolean;
+  currentTime: number
+  duration: number
+  trimStart: number
+  trimEnd: number
+  formatTime: (time: number) => string
+  defaultTitle: string
+  videoPath: string
+  isMuted: boolean
 }
 
 const ExportPanel: React.FC<ExportPanelProps> = ({
@@ -21,159 +21,105 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
   videoPath,
   isMuted
 }) => {
-  const [clipTitle, setClipTitle] = useState("");
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportSuccess, setExportSuccess] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [sourceFileSize, setSourceFileSize] = useState<number>(0);
+  const [clipTitle, setClipTitle] = useState("")
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportSuccess, setExportSuccess] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [sourceFileSize, setSourceFileSize] = useState(0)
   const [exportSettings, setExportSettings] = useState({
     fileExtension: "mp4",
     resolution: "source",
     codec: "default",
     bitrate: "",
     copyToClipboard: false
-  });
+  })
 
   useEffect(() => {
-    const loadExportSettings = async () => {
+    const loadSettings = async () => {
       const settings = await GetExportSettings()
-      if (settings) {
-        setExportSettings({
-          fileExtension: settings.file_extension || "mp4",
-          resolution: settings.resolution || "source",
-          codec: settings.codec || "default",
-          bitrate: settings.bitrate || "",
-          copyToClipboard: settings.copy_to_clipboard || false
-        });
-      }
-    };
-    loadExportSettings();
-    setClipTitle(defaultTitle);
-
-    fetch(`http://localhost:34115/video/${encodeURIComponent(videoPath)}`, { method: 'HEAD' })
-      .then(response => {
-        const size = parseInt(response.headers.get('content-length') || '0');
-        setSourceFileSize(size);
+      if (settings) setExportSettings({
+        fileExtension: settings.file_extension || "mp4",
+        resolution: settings.resolution || "source",
+        codec: settings.codec || "default",
+        bitrate: settings.bitrate || "",
+        copyToClipboard: settings.copy_to_clipboard || false
       })
-      .catch(error => console.error('Error getting file size:', error));
-  }, [defaultTitle, videoPath]);
+    }
+    loadSettings()
+    setClipTitle(defaultTitle)
+    fetch(`http://localhost:34115/video/${encodeURIComponent(videoPath)}`, { method: 'HEAD' })
+          .then(response => setSourceFileSize(parseInt(response.headers.get('content-length') || '0')))
+          .catch(console.error)
+  }, [defaultTitle, videoPath])
 
   const calculateEstimatedSize = () => {
-    const clipDuration = trimEnd - trimStart;
-    const sourceDuration = duration;
-    
-    if (sourceFileSize === 0 || sourceDuration === 0) return '0.00';
-    
-    let estimatedSize = (sourceFileSize / sourceDuration) * clipDuration;
-    
-    const codecMultipliers: { [key: string]: number } = {
-      'h264_nvenc': 1.1,
-      'hevc_nvenc': 0.85,
-      'libx264': 1.0,
-      'libx265': 0.8,
-      'default': 1.0
-    };
-    
-    const resolutionMultipliers: { [key: string]: number } = {
-      'source': 1.0,
-      '1080p': 0.95,
-      '720p': 0.5,
-      '480p': 0.25
-    };
-    
-    const formatMultipliers: { [key: string]: number } = {
-      'mp4': 1.0,
-      'mov': 1.1,
-      'gif': 1.2
-    };
-    
-    estimatedSize *= codecMultipliers[exportSettings.codec] || 1.0;
-    
-    estimatedSize *= resolutionMultipliers[exportSettings.resolution] || 1.0;
-    
-    estimatedSize *= formatMultipliers[exportSettings.fileExtension] || 1.0;
-    
-    if (exportSettings.bitrate) {
-      const bitrateInBytes = parseInt(exportSettings.bitrate) * 125;
-      estimatedSize = (bitrateInBytes * clipDuration);
+    const clipDuration = trimEnd - trimStart
+    if (sourceFileSize === 0 || duration === 0) return '0.00'
+    let estimatedSize = (sourceFileSize / duration) * clipDuration
+    const multipliers = {
+      codec: { 'h264_nvenc': 1.1, 'hevc_nvenc': 0.85, 'libx264': 1.0, 'libx265': 0.8, 'default': 1.0 },
+      resolution: { 'source': 1.0, '1080p': 0.95, '720p': 0.5, '480p': 0.25 },
+      format: { 'mp4': 1.0, 'mov': 1.1, 'gif': 1.2 }
     }
-    
-    if (isMuted) {
-      estimatedSize *= 0.85;
-    }
-    
-    return (estimatedSize / (1024 * 1024)).toFixed(2);
-  };
+    estimatedSize *= multipliers.codec[exportSettings.codec as keyof typeof multipliers.codec] || 1.0
+    estimatedSize *= multipliers.resolution[exportSettings.resolution as keyof typeof multipliers.resolution] || 1.0
+    estimatedSize *= multipliers.format[exportSettings.fileExtension as keyof typeof multipliers.format] || 1.0
+    if (exportSettings.bitrate) estimatedSize = (parseInt(exportSettings.bitrate) * 125 * clipDuration)
+    if (isMuted) estimatedSize *= 0.85
+    return (estimatedSize / (1024 * 1024)).toFixed(2)
+  }
 
   const handleExport = async () => {
-    if (isExporting) return;
-    
-    setIsExporting(true);
-    setExportSuccess(false);
-    setExportError(null);
-    
+    if (isExporting) return
+    setIsExporting(true)
     try {
-      const codec = isMuted ? `${exportSettings.codec}:muted` : exportSettings.codec;
-      
-      const outputPath = await ExportClip(
-        videoPath,
-        clipTitle,
-        trimStart,
-        trimEnd,
-        exportSettings.fileExtension,
-        exportSettings.resolution,
-        codec,
-        exportSettings.bitrate
-      );
-      setExportSuccess(true);
-      if (exportSettings.copyToClipboard) {
-        console.log(`Copying to clipboard: ${outputPath}`);
-      }
-      setTimeout(() => setExportSuccess(false), 5000);
+      const codec = isMuted ? `${exportSettings.codec}:muted` : exportSettings.codec
+      await ExportClip(videoPath, clipTitle, trimStart, trimEnd, exportSettings.fileExtension, 
+                      exportSettings.resolution, codec, exportSettings.bitrate)
+      setExportSuccess(true)
+      setTimeout(() => setExportSuccess(false), 5000)
     } catch (error) {
-      setExportError(error as string);
-      setTimeout(() => setExportError(null), 5000);
+      setExportError(error as string)
+      setTimeout(() => setExportError(null), 5000)
     } finally {
-      setIsExporting(false);
+      setIsExporting(false)
     }
-  };
+  }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
       <input
         type="text"
         value={clipTitle}
         onChange={(e) => setClipTitle(e.target.value)}
-        placeholder="Enter clip title..."
-        className="w-full bg-zinc-800 border border-zinc-700 text-zinc-100 py-2 px-3 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center"
+        placeholder="Clip title"
+        className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
       />
 
       <button 
-        className={`w-full py-2 px-4 rounded-md transition-colors ${
-          isExporting 
-            ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' 
-            : exportSuccess 
-              ? 'bg-green-700 hover:bg-green-600 text-white' 
-              : 'bg-emerald-700 hover:bg-emerald-600 text-white'
+        className={`w-full py-2.5 rounded-lg transition-colors ${
+          isExporting ? 'bg-zinc-700 cursor-not-allowed' :
+          exportSuccess ? 'bg-emerald-600/50 border border-emerald-500/30' :
+          'bg-emerald-600 hover:bg-emerald-500'
         }`}
         onClick={handleExport}
         disabled={isExporting}
       >
-        {isExporting ? 'Exporting...' : exportSuccess ? 'Exported Successfully!' : 'Export Clip'}
+        {isExporting ? 'Exporting...' : exportSuccess ? 'Exported!' : 'Export Clip'}
       </button>
       
       {exportError && (
-        <div className="text-red-500 text-sm text-center p-1">
+        <div className="text-red-400 text-sm text-center">
           Export failed: {exportError}
         </div>
       )}
 
-      <div className="flex justify-between items-center text-xs text-zinc-500">
-        <span>Estimated Clip Size: {calculateEstimatedSize()} MB</span>
-        <span>Clip duration: {formatTime(trimEnd - trimStart)}</span>
+      <div className="flex justify-between items-center text-xs text-zinc-400">
+        <span>Estimated Size: {calculateEstimatedSize()} MB</span>
+        <span>Duration: {formatTime(trimEnd - trimStart)}</span>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default ExportPanel;
+export default ExportPanel
