@@ -39,3 +39,7 @@ Thumbs.db
 *.h
 *.prof
 *.profraw
+
+# Wails build artifacts
+wails_build/
+frontend/dist/
