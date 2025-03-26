@@ -1,8 +1,9 @@
-import { useState, useEffect, DragEvent } from 'react'
+import { useState, useEffect, DragEvent, useRef } from 'react'
 import VideoEditor from './VideoEditor'
 import Settings from './Settings'
-import { GetLatestVideos, GetWatchLocation, SelectVideo, HandleFileUpload } from '../wailsjs/wailsjs/go/main/App'
-import { EventsOn, EventsOff } from '../wailsjs/wailsjs/runtime/runtime'
+import WindowHeader from './components/WindowHeader'
+import { GetLatestVideos, GetWatchLocation, SelectVideo, HandleFileUpload, SaveWatchLocation } from '../wailsjs/wailsjs/go/main/App'
+import { EventsOn, EventsOff, WindowSetSize, WindowIsMaximised } from '../wailsjs/wailsjs/runtime/runtime'
 import { main } from '../wailsjs/wailsjs/go/models'
 
 interface VideoWithThumbnail extends main.VideoFile { thumbnailData?: string; }
@@ -22,6 +23,7 @@ function App() {
     const [dragOver, setDragOver] = useState(false)
     const [updateAvailable, setUpdateAvailable] = useState(false)
     const [latestVersion, setLatestVersion] = useState("")
+    const [isMaximized, setIsMaximized] = useState(false)
     
     const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
         e.preventDefault()
@@ -67,17 +69,36 @@ function App() {
         }
     }
 
-    const getRecentVideos = async() => {
-        const latest = await GetLatestVideos(dir)
-        setRecentVideos(latest)
+    const getRecentVideos = async () => {
+        try {
+            if (!dir) {
+                const location = await GetWatchLocation()
+                if (location) {
+                    setDir(location)
+                    const latest = await GetLatestVideos(location)
+                    setRecentVideos(latest)
+                }
+            } else {
+                const latest = await GetLatestVideos(dir)
+                setRecentVideos(latest)
+            }
+        } catch (error) {
+            console.error('Error fetching recent videos:', error)
+        }
     }
 
     const reloadWatchLocation = async () => {
-        const location = await GetWatchLocation()
-        setDir(location)
-        await getRecentVideos()
+        try {
+            const location = await GetWatchLocation()
+            if (location) {
+                setDir(location)
+                await getRecentVideos()
+            }
+        } catch (error) {
+            console.error('Error loading watch location:', error)
+        }
     }
-    
+
     const checkForUpdates = async () => {
         try {
             const response = await fetch(VERSION_CHECK_URL)
@@ -115,87 +136,145 @@ function App() {
         }
     }
 
-    useEffect(() => {
-        const handleFileChange = async () => {
-            if (dir) await getRecentVideos()
+    const handleThumbnail = () => {
+        if (dir) {
+            getRecentVideos()
         }
-        const handleThumbnail = async (id: string) => {
-            try {
-                const response = await fetch(`/thumbnails/${id}`)
-                if (!response.ok) throw new Error('Failed to fetch thumbnail')
-                const blob = await response.blob()
-                const reader = new FileReader()
-                reader.onloadend = () => {
-                    setRecentVideos(prev => prev.map(video => video.id === id ? { ...video, thumbnailData: reader.result as string } : video))
-                }
-                reader.readAsDataURL(blob)
-            } catch (err) {
-                console.error(err)
+    }
+
+    const debounceTimeout = useRef<NodeJS.Timeout>()
+
+    const debouncedGetRecentVideos = () => {
+        if (debounceTimeout.current) {
+            clearTimeout(debounceTimeout.current)
+        }
+        debounceTimeout.current = setTimeout(() => {
+            getRecentVideos()
+        }, 100)
+    }
+
+    const initializeSettings = async () => {
+        try {
+            const location = await GetWatchLocation()
+            if (location) {
+                setDir(location)
+                await getRecentVideos()
             }
+            checkLocalStorageForUpdates()
+            checkForUpdates()
+        } catch (error) {
+            console.error('Error initializing settings:', error)
         }
-        EventsOn("thumbnail-ready", handleThumbnail)
+    }
+
+    const saveAndVerifyLocations = async (dir: string) => {
+        try {
+            await SaveWatchLocation(dir)
+            setDir(dir)
+            await getRecentVideos()
+        } catch (error) {
+            console.error('Error saving location:', error)
+        }
+    }
+
+    useEffect(() => {
+        initializeSettings()
+        const handleFileChange = () => {
+            if (dir) debouncedGetRecentVideos()
+        }
+
         EventsOn("file-created", handleFileChange)
         EventsOn("file-changed", handleFileChange)
         EventsOn("file-removed", handleFileChange)
         EventsOn("file-renamed", handleFileChange)
-        const offDirectoryChanged = EventsOn("directory-changed", reloadWatchLocation)
-        const loadWatchLocation = async () => {
-            const location = await GetWatchLocation()
-            if (location) setDir(location)
-        }
-        loadWatchLocation()
-        checkLocalStorageForUpdates()
-        checkForUpdates()
-        document.body.classList.add('bg-black', 'text-zinc-100')
-        const metaTheme = document.createElement('meta')
-        metaTheme.name = 'theme-color'
-        metaTheme.content = '#000000'
-        document.head.appendChild(metaTheme)
+        EventsOn("refresh-videos", handleFileChange)
+        EventsOn("directory-changed", reloadWatchLocation)
+        EventsOn("thumbnail-ready", handleThumbnail)
+
         return () => {
-            document.head.removeChild(metaTheme)
-            EventsOff("thumbnail-ready")
+            if (debounceTimeout.current) {
+                clearTimeout(debounceTimeout.current)
+            }
             EventsOff("file-created")
             EventsOff("file-changed")
             EventsOff("file-removed")
             EventsOff("file-renamed")
+            EventsOff("refresh-videos")
             EventsOff("directory-changed")
-            offDirectoryChanged()
+            EventsOff("thumbnail-ready")
         }
     }, [])
 
     useEffect(() => {
-        if (dir) getRecentVideos()
+        if (dir) {
+            getRecentVideos()
+        }
     }, [dir])
 
-    if (currentPage === 'videoEditor') return <VideoEditor setCurrentPage={setCurrentPage} videoPath={selectedVideo} />
-    if (currentPage === 'settings') return <Settings setCurrentPage={setCurrentPage} onSettingsSaved={reloadWatchLocation} />
+    const checkMaximized = async () => {
+        try {
+            const maximized = await WindowIsMaximised()
+            setIsMaximized(maximized)
+        } catch (error) {
+            console.error("Failed to check maximized state:", error)
+        }
+    }
+
+    useEffect(() => {
+        checkMaximized()
+    }, [currentPage])
+
+    useEffect(() => {
+        const setWindowSizeIfNeeded = async () => {
+            const maximized = await WindowIsMaximised()
+            if (maximized) return
+            
+            if (currentPage === 'home') {
+                WindowSetSize(800, 710)
+            } else if (currentPage === 'videoEditor') {
+                WindowSetSize(800, 841)
+            } else if (currentPage === 'settings') {
+                WindowSetSize(800, 780)
+            }
+        }
+        
+        setWindowSizeIfNeeded()
+    }, [currentPage])
+
+    if (currentPage === 'videoEditor') return (
+        <div className="flex flex-col h-screen text-white">
+            <WindowHeader title="Skibidi Slicer" setCurrentPage={setCurrentPage} currentPage={currentPage} />
+            <VideoEditor setCurrentPage={setCurrentPage} videoPath={selectedVideo} />
+        </div>
+    )
+    
+    if (currentPage === 'settings') return (
+        <div className="flex flex-col h-screen text-white">
+            <WindowHeader title="Skibidi Slicer" setCurrentPage={setCurrentPage} currentPage={currentPage} />
+            <Settings setCurrentPage={setCurrentPage} onSettingsSaved={reloadWatchLocation} />
+        </div>
+    )
 
     return (
-        <div className="min-h-screen bg-black text-zinc-100 flex flex-col">
-            <header className="border-b border-zinc-800 bg-black/95 backdrop-blur-sm py-4 px-6 sticky top-0 z-50">
-                <div className="flex items-center justify-between max-w-7xl mx-auto w-full">
-                    <h1 className="text-xl font-semibold tracking-tight">
-                        <span className="bg-white bg-clip-text text-transparent">
-                            Skibidi Slicer
-                        </span>
-                    </h1>
-                    <nav className="flex items-center gap-4">
-                        {updateAvailable && (
-                            <button onClick={handleUpdate} className="px-3 py-1.5 bg-amber-600/20 border border-amber-500/30 rounded-lg text-xs font-medium text-amber-400 hover:bg-amber-500/10 transition-colors flex items-center gap-1.5">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                </svg>
-                                Update Available
-                            </button>
-                        )}
-                        <button onClick={() => setCurrentPage('settings')} className="px-4 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm font-medium">
-                            Settings
+        <div className="flex flex-col h-screen text-white">
+            <WindowHeader title="Skibidi Slicer" setCurrentPage={setCurrentPage} currentPage={currentPage} />
+            
+            <main className="flex-1 p-8 flex flex-col items-center bg-black">
+                {updateAvailable && (
+                    <div className="mb-4 px-3 py-2 bg-amber-600/20 border border-amber-500/30 rounded-lg text-sm font-medium text-amber-400 flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        <span>Update Available: {latestVersion}</span>
+                        <button 
+                            onClick={handleUpdate} 
+                            className="ml-2 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 rounded text-xs transition-colors"
+                        >
+                            Update Now
                         </button>
-                    </nav>
-                </div>
-            </header>
-
-            <main className="flex-1 p-8 flex flex-col items-center ">
+                    </div>
+                )}
+                
                 <div className={`max-w-4xl w-full text-center border-2 ${dragOver ? 'border-emerald-400/50' : 'border-zinc-800'} rounded-2xl p-16 transition-colors backdrop-blur-sm bg-zinc-900/30`}
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
@@ -203,7 +282,7 @@ function App() {
                     <div className="space-y-5">
                         <div className="space-y-4">
                             <h2 className="text-2xl font-semibold tracking-tight">Drag Video File</h2>
-                            <p className="text-zinc-400 text-sm">Supported formats: MP4, MOV, AVI, MKV, WEBM</p>
+                            <p className="text-zinc-300 text-sm">Supported formats: MP4, MOV, AVI, MKV, WEBM</p>
                         </div>
                         <button onClick={handleSelectVideo} className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition-colors">
                             Browse Files
@@ -237,7 +316,7 @@ function App() {
                                     )}
                                 </div>
                                 <div className="flex justify-between items-center">
-                                    <span className="text-sm font-medium text-zinc-300 truncate">{video.name}</span>
+                                    <span className="text-sm font-medium text-white truncate">{video.name}</span>
                                 </div>
                             </div>
                         ))}
@@ -245,7 +324,7 @@ function App() {
                 </section>
             </main>
 
-            <footer className="border-t border-zinc-800 mt-24 py-4 px-6 bg-black/95 backdrop-blur-sm">
+            <footer className="border-t border-zinc-800 py-4 px-6 bg-black/95 backdrop-blur-sm">
                 <div className="max-w-7xl mx-auto flex justify-between items-center text-sm text-zinc-500">
                     <div>© {new Date().getFullYear()} SkibidiSlicer</div>
                     <div className="flex items-center gap-4">

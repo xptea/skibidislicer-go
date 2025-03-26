@@ -206,29 +206,60 @@ func (a *App) GetLatestVideos(directory string) ([]VideoFile, error) {
 }
 
 func (a *App) watchDirectory(path string) {
-	a.watcher.Add(path)
-	for {
-		select {
-		case event, ok := <-a.watcher.Events:
-			if !ok {
-				return
+	a.watchMutex.Lock()
+	if a.watcher != nil {
+		a.watcher.Close()
+		a.watcher = nil
+	}
+	a.watchMutex.Unlock()
+
+	if path == "" {
+		return
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return
+	}
+
+	a.watchMutex.Lock()
+	a.watcher = watcher
+	a.watchMutex.Unlock()
+
+	err = a.watcher.Add(path)
+	if err != nil {
+		a.watcher.Close()
+		return
+	}
+
+	go func() {
+		for {
+			select {
+			case event, ok := <-a.watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Name != "" {
+					ext := strings.ToLower(filepath.Ext(event.Name))
+					if ext == ".mp4" || ext == ".mov" || ext == ".avi" || ext == ".mkv" || ext == ".webm" {
+						a.refreshVideos()
+					}
+				}
+			case err, ok := <-a.watcher.Errors:
+				if !ok {
+					return
+				}
+				if err != nil {
+					runtime.LogError(a.ctx, err.Error())
+				}
 			}
-			switch {
-			case event.Op&fsnotify.Create == fsnotify.Create:
-				runtime.EventsEmit(a.ctx, "file-created")
-			case event.Op&fsnotify.Remove == fsnotify.Remove:
-				runtime.EventsEmit(a.ctx, "file-removed")
-			case event.Op&fsnotify.Rename == fsnotify.Rename:
-				runtime.EventsEmit(a.ctx, "file-renamed")
-			case event.Op&fsnotify.Write == fsnotify.Write:
-				runtime.EventsEmit(a.ctx, "file-changed")
-			}
-		case err, ok := <-a.watcher.Errors:
-			if !ok {
-				return
-			}
-			fmt.Println("Watcher error:", err)
 		}
+	}()
+}
+
+func (a *App) refreshVideos() {
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "refresh-videos")
 	}
 }
 
