@@ -12,7 +12,7 @@ declare global {
     interface File { path: string; }
 }
 
-const CURRENT_VERSION = "v1.0.2"
+const CURRENT_VERSION = "v1.0.3"
 const VERSION_CHECK_URL = "https://raw.githubusercontent.com/xptea/skibidislicer-go/refs/heads/main/frontend/src/version.txt"
 
 function App() {
@@ -232,9 +232,9 @@ function App() {
             if (currentPage === 'home') {
                 WindowSetSize(800, 710)
             } else if (currentPage === 'videoEditor') {
-                WindowSetSize(800, 841)
+                WindowSetSize(800, 850)
             } else if (currentPage === 'settings') {
-                WindowSetSize(800, 780)
+                WindowSetSize(800, 705)
             }
         }
         

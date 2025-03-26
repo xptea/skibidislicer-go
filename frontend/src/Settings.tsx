@@ -33,29 +33,60 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage, onSettingsSaved }) 
     loadSettings()
   }, [])
 
-  const handleSave = async () => {
-        if (currentDir) {
-            try {
-                await SaveWatchLocation(currentDir)
-                await SaveSaveLocation(saveDir)
-                await SaveExportSettings({
-                    file_extension: fileExtension,
-                    resolution,
-                    codec,
-                    bitrate,
-                    copy_to_clipboard: copyToClipboard,
-                    watch_location: currentDir,
-                    save_location: saveDir
-                })
-                if (onSettingsSaved) {
-                    onSettingsSaved()
-                }
-                setCurrentPage('home')
-            } catch (error) {
-                console.error('Error saving settings:', error)
-            }
+  const saveSettings = async () => {
+    if (currentDir) {
+      try {
+        await SaveWatchLocation(currentDir)
+        await SaveSaveLocation(saveDir)
+        await SaveExportSettings({
+          file_extension: fileExtension,
+          resolution,
+          codec,
+          bitrate,
+          copy_to_clipboard: copyToClipboard,
+          watch_location: currentDir,
+          save_location: saveDir
+        })
+        if (onSettingsSaved) {
+          onSettingsSaved()
         }
+      } catch (error) {
+        console.error('Error saving settings:', error)
+      }
     }
+  }
+
+  const handleDirectoryChange = async (dir: string, type: 'watch' | 'save'): Promise<void> => {
+    if (type === 'watch') {
+      setCurrentDir(dir)
+      if (dir) await SaveWatchLocation(dir)
+    } else {
+      setSaveDir(dir)
+      if (dir) await SaveSaveLocation(dir)
+    }
+    if (onSettingsSaved) onSettingsSaved()
+  }
+
+  const handleSettingChange = async <T extends string | boolean>(
+    value: T,
+    setter: React.Dispatch<React.SetStateAction<T>>,
+    key: string
+  ) => {
+    setter(value)
+    if (currentDir) {
+      await SaveExportSettings({
+        file_extension: fileExtension,
+        resolution,
+        codec,
+        bitrate,
+        copy_to_clipboard: copyToClipboard,
+        watch_location: currentDir,
+        save_location: saveDir,
+        [key]: value
+      })
+      if (onSettingsSaved) onSettingsSaved()
+    }
+  }
 
   return (
     <div className="flex-1 flex items-start justify-center p-4 bg-black">
@@ -68,11 +99,11 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage, onSettingsSaved }) 
               <div className="flex gap-3">
                 <input
                   value={currentDir}
-                  onChange={(e) => setCurrentDir(e.target.value)}
+                  onChange={(e) => { handleDirectoryChange(e.target.value, 'watch') }}
                   className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white"
                 />
                 <button className="px-4 py-2.5 bg-zinc-800/50 border border-zinc-700 rounded-lg text-white"
-                        onClick={() => FetchDirectory().then(dir => dir && setCurrentDir(dir))}>
+                        onClick={() => FetchDirectory().then(dir => { if (dir) handleDirectoryChange(dir, 'watch') })}>
                   Browse
                 </button>
               </div>
@@ -82,11 +113,11 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage, onSettingsSaved }) 
               <div className="flex gap-3">
                 <input
                   value={saveDir}
-                  onChange={(e) => setSaveDir(e.target.value)}
+                  onChange={(e) => { handleDirectoryChange(e.target.value, 'save') }}
                   className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white"
                 />
                 <button className="px-4 py-2.5 bg-zinc-800/50 border border-zinc-700 rounded-lg text-white"
-                        onClick={() => FetchDirectory().then(dir => dir && setSaveDir(dir))}>
+                        onClick={() => FetchDirectory().then(dir => { if (dir) handleDirectoryChange(dir, 'save') })}>
                   Browse
                 </button>
               </div>
@@ -101,7 +132,7 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage, onSettingsSaved }) 
               <label className="text-sm font-medium text-white">File Format</label>
               <select
                 value={fileExtension}
-                onChange={(e) => setFileExtension(e.target.value)}
+                onChange={(e) => handleSettingChange(e.target.value, setFileExtension, 'file_extension')}
                 className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white">
                 <option value="mp4">MP4</option>
                 <option value="mov">MOV</option>
@@ -112,7 +143,7 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage, onSettingsSaved }) 
               <label className="text-sm font-medium text-white">Resolution</label>
               <select
                 value={resolution}
-                onChange={(e) => setResolution(e.target.value)}
+                onChange={(e) => handleSettingChange(e.target.value, setResolution, 'resolution')}
                 className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white">
                 <option value="source">Source</option>
                 <option value="1080p">1080p</option>
@@ -124,7 +155,7 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage, onSettingsSaved }) 
               <label className="text-sm font-medium text-white">Codec</label>
               <select
                 value={codec}
-                onChange={(e) => setCodec(e.target.value)}
+                onChange={(e) => handleSettingChange(e.target.value, setCodec, 'codec')}
                 className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white">
                 <option value="default">Default</option>
                 <option value="h264_nvenc">H.264 NVENC</option>
@@ -138,7 +169,7 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage, onSettingsSaved }) 
               <input
                 type="number"
                 value={bitrate}
-                onChange={(e) => setBitrate(e.target.value)}
+                onChange={(e) => handleSettingChange(e.target.value, setBitrate, 'bitrate')}
                 className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white"
                 placeholder="Auto"
               />
@@ -148,19 +179,13 @@ const Settings: React.FC<SettingsProps> = ({ setCurrentPage, onSettingsSaved }) 
                 <input
                   type="checkbox"
                   checked={copyToClipboard}
-                  onChange={(e) => setCopyToClipboard(e.target.checked)}
+                  onChange={(e) => handleSettingChange(e.target.checked, setCopyToClipboard, 'copy_to_clipboard')}
                   className="rounded border-zinc-600"
                 />
                 Copy to clipboard after export
               </label>
             </div>
           </div>
-        </div>
-
-        <div className="flex justify-end">
-          <button onClick={handleSave} className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors text-white">
-            Save Settings
-          </button>
         </div>
       </div>
     </div>
