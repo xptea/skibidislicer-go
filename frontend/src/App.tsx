@@ -1,4 +1,4 @@
-import { useState, useEffect, DragEvent, useRef } from 'react'
+import { useState, useEffect, DragEvent, useRef, useCallback } from 'react'
 import VideoEditor from './VideoEditor'
 import Settings from './Settings'
 import WindowHeader from './components/WindowHeader'
@@ -12,7 +12,7 @@ declare global {
     interface File { path: string; }
 }
 
-const CURRENT_VERSION = "v1.0.3"
+const CURRENT_VERSION = "v1.0.4"
 const VERSION_CHECK_URL = "https://raw.githubusercontent.com/xptea/skibidislicer-go/refs/heads/main/frontend/src/version.txt"
 
 function App() {
@@ -87,17 +87,43 @@ function App() {
         }
     }
 
-    const reloadWatchLocation = async () => {
-        try {
-            const location = await GetWatchLocation()
-            if (location) {
-                setDir(location)
-                await getRecentVideos()
-            }
-        } catch (error) {
-            console.error('Error loading watch location:', error)
+    const forceRefresh = useCallback(async () => {
+        const location = await GetWatchLocation()
+        if (location) {
+            setDir(location)
+            const latest = await GetLatestVideos(location)
+            setRecentVideos(latest)
         }
-    }
+    }, [])
+
+    useEffect(() => {
+        const handleFileEvent = async () => {
+            await forceRefresh()
+        }
+
+        EventsOn("file-created", handleFileEvent)
+        EventsOn("file-changed", handleFileEvent)
+        EventsOn("file-removed", handleFileEvent)
+        EventsOn("file-renamed", handleFileEvent)
+        EventsOn("refresh-videos", handleFileEvent)
+        EventsOn("directory-changed", handleFileEvent)
+        EventsOn("thumbnail-ready", handleFileEvent)
+
+        forceRefresh()
+
+        const refreshInterval = setInterval(forceRefresh, 2000)
+
+        return () => {
+            EventsOff("file-created")
+            EventsOff("file-changed")
+            EventsOff("file-removed")
+            EventsOff("file-renamed")
+            EventsOff("refresh-videos")
+            EventsOff("directory-changed")
+            EventsOff("thumbnail-ready")
+            clearInterval(refreshInterval)
+        }
+    }, [])
 
     const checkForUpdates = async () => {
         try {
@@ -179,22 +205,23 @@ function App() {
 
     useEffect(() => {
         initializeSettings()
-        const handleFileChange = () => {
-            if (dir) debouncedGetRecentVideos()
+
+        const refreshRecentVideos = () => {
+            console.log('Refreshing recent videos')
+            getRecentVideos()
         }
 
-        EventsOn("file-created", handleFileChange)
-        EventsOn("file-changed", handleFileChange)
-        EventsOn("file-removed", handleFileChange)
-        EventsOn("file-renamed", handleFileChange)
-        EventsOn("refresh-videos", handleFileChange)
-        EventsOn("directory-changed", reloadWatchLocation)
+        EventsOn("file-created", refreshRecentVideos)
+        EventsOn("file-changed", refreshRecentVideos)
+        EventsOn("file-removed", refreshRecentVideos)
+        EventsOn("file-renamed", refreshRecentVideos)
+        EventsOn("refresh-videos", refreshRecentVideos)
+        EventsOn("directory-changed", GetWatchLocation)
         EventsOn("thumbnail-ready", handleThumbnail)
 
+        refreshRecentVideos()
+
         return () => {
-            if (debounceTimeout.current) {
-                clearTimeout(debounceTimeout.current)
-            }
             EventsOff("file-created")
             EventsOff("file-changed")
             EventsOff("file-removed")
@@ -203,7 +230,7 @@ function App() {
             EventsOff("directory-changed")
             EventsOff("thumbnail-ready")
         }
-    }, [])
+    }, [dir])  // Add dir as dependency to ensure event handlers are updated
 
     useEffect(() => {
         if (dir) {
@@ -251,7 +278,7 @@ function App() {
     if (currentPage === 'settings') return (
         <div className="flex flex-col h-screen text-white">
             <WindowHeader title="Skibidi Slicer" setCurrentPage={setCurrentPage} currentPage={currentPage} />
-            <Settings setCurrentPage={setCurrentPage} onSettingsSaved={reloadWatchLocation} />
+            <Settings setCurrentPage={setCurrentPage} onSettingsSaved={GetWatchLocation} />
         </div>
     )
 

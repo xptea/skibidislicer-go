@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/fsnotify/fsnotify"
@@ -206,6 +207,10 @@ func (a *App) GetLatestVideos(directory string) ([]VideoFile, error) {
 }
 
 func (a *App) watchDirectory(path string) {
+	if path == "" {
+		return
+	}
+
 	a.watchMutex.Lock()
 	if a.watcher != nil {
 		a.watcher.Close()
@@ -213,12 +218,9 @@ func (a *App) watchDirectory(path string) {
 	}
 	a.watchMutex.Unlock()
 
-	if path == "" {
-		return
-	}
-
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
+		runtime.LogError(a.ctx, fmt.Sprintf("Failed to create watcher: %v", err))
 		return
 	}
 
@@ -226,31 +228,75 @@ func (a *App) watchDirectory(path string) {
 	a.watcher = watcher
 	a.watchMutex.Unlock()
 
-	err = a.watcher.Add(path)
+	err = filepath.WalkDir(path, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return watcher.Add(path)
+		}
+		return nil
+	})
+
 	if err != nil {
-		a.watcher.Close()
+		runtime.LogError(a.ctx, fmt.Sprintf("Failed to add path to watcher: %v", err))
+		watcher.Close()
 		return
 	}
+
+	debounceTimer := make(map[string]*time.Timer)
+	debounceEvents := make(map[string]fsnotify.Op)
+	debounceInterval := 100 * time.Millisecond
 
 	go func() {
 		for {
 			select {
-			case event, ok := <-a.watcher.Events:
+			case event, ok := <-watcher.Events:
 				if !ok {
 					return
 				}
-				if event.Name != "" {
-					ext := strings.ToLower(filepath.Ext(event.Name))
-					if ext == ".mp4" || ext == ".mov" || ext == ".avi" || ext == ".mkv" || ext == ".webm" {
-						a.refreshVideos()
-					}
+				if event.Name == "" {
+					continue
 				}
-			case err, ok := <-a.watcher.Errors:
+
+				ext := strings.ToLower(filepath.Ext(event.Name))
+				if ext != ".mp4" && ext != ".mov" && ext != ".avi" && ext != ".mkv" && ext != ".webm" {
+					continue
+				}
+
+				eventPath := event.Name
+				if timer, exists := debounceTimer[eventPath]; exists {
+					timer.Stop()
+				}
+
+				debounceEvents[eventPath] = event.Op
+				debounceTimer[eventPath] = time.AfterFunc(debounceInterval, func() {
+					op := debounceEvents[eventPath]
+					delete(debounceEvents, eventPath)
+					delete(debounceTimer, eventPath)
+
+					runtime.LogDebug(a.ctx, fmt.Sprintf("Processing event: %s - %s", op, eventPath))
+
+					switch op {
+					case fsnotify.Create:
+						runtime.EventsEmit(a.ctx, "file-created")
+					case fsnotify.Write:
+						runtime.EventsEmit(a.ctx, "file-changed")
+					case fsnotify.Remove:
+						runtime.EventsEmit(a.ctx, "file-removed")
+					case fsnotify.Rename:
+						runtime.EventsEmit(a.ctx, "file-renamed")
+					}
+					runtime.EventsEmit(a.ctx, "refresh-videos")
+					runtime.EventsEmit(a.ctx, "directory-changed")
+				})
+
+			case err, ok := <-watcher.Errors:
 				if !ok {
 					return
 				}
 				if err != nil {
-					runtime.LogError(a.ctx, err.Error())
+					runtime.LogError(a.ctx, fmt.Sprintf("Watcher error: %v", err))
 				}
 			}
 		}
